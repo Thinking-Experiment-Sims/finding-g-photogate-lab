@@ -1,0 +1,11 @@
+{
+  "name": "tte-sim",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interactive physics simulation - The Thinking Experiment",
+  "scripts": {
+    "test": "node --test"
+  },
+  "author": "Vladimir Lopez",
+  "license": "ISC"
+}

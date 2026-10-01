@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- TEMPLATE: replace title + description for this sim -->
+  <title>Constant Acceleration Cart | The Thinking Experiment</title>
+  <meta name="description" content="Interactive 1D constant-acceleration simulation with live motion data and trial recording." />
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="stylesheet" href="src/css/sim-core.css" />
+  <link rel="stylesheet" href="src/css/sim.css" />
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <div class="shell">
+    <header class="hero">
+      <div class="hero-top">
+        <div>
+          <div class="badge-row">
+            <a class="brand-badge" href="https://thinking-experiment-sims.github.io/interactive-physics/"
+               title="Back to the simulation hub">← The Thinking Experiment</a>
+            <span class="lab-badge">Physics Inquiry Lab</span>
+          </div>
+          <h1>Constant Acceleration Cart</h1>
+          <p class="subtitle">
+            Give the cart a starting velocity and an acceleration, predict where it will be, then run it and check.
+          </p>
+        </div>
+        <button id="themeToggle" type="button" class="theme-toggle ghost">Dark mode</button>
+      </div>
+    </header>
+
+    <main class="app-layout" aria-label="Simulation">
+
+      <section class="panel narrow" aria-labelledby="controlsHeading">
+        <h2 id="controlsHeading">Controls</h2>
+        <p class="hint">Positive direction: to the right.</p>
+
+        <div class="controls-grid">
+          <label>
+            Initial position x₀ (m)
+            <input id="x0Input" type="number" min="0" max="20" step="0.5" value="2" />
+          </label>
+          <label>
+            Run time (s)
+            <input id="tMaxInput" type="number" min="1" max="10" step="0.5" value="4" />
+          </label>
+        </div>
+
+        <label class="range-label">
+          Initial velocity v₀: <span id="v0Value">2.0 m/s</span>
+          <input id="v0Slider" type="range" min="-6" max="6" step="0.5" value="2" />
+        </label>
+
+        <label class="range-label">
+          Acceleration a: <span id="aValue">1.0 m/s²</span>
+          <input id="aSlider" type="range" min="-3" max="3" step="0.25" value="1" />
+        </label>
+
+        <div class="toggle-group">
+          <label class="toggle-line">
+            <input id="dotsToggle" type="checkbox" checked />
+            Show motion map dots (every 0.5 s)
+          </label>
+        </div>
+
+        <div class="button-row">
+          <button id="startBtn" class="primary" type="button">Start</button>
+          <button id="pauseBtn" type="button">Pause</button>
+          <button id="resetBtn" type="button">Reset</button>
+          <button id="recordBtn" class="amber" type="button">Record Trial</button>
+        </div>
+
+        <p id="statusText" class="status" aria-live="polite">Ready. Make a prediction, then press Start.</p>
+
+        <div class="preset-box">
+          <h3>Quick Scenarios</h3>
+          <div class="button-row compact">
+            <button class="ghost" type="button" data-preset="steady">Steady speed</button>
+            <button class="ghost" type="button" data-preset="speedUp">Speeding up</button>
+            <button class="ghost" type="button" data-preset="turnaround">Turnaround</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel wide" aria-labelledby="viewHeading">
+        <div class="panel-head">
+          <h2 id="viewHeading">Track View</h2>
+          <p class="info-line">The track is 20 m long. Dots are dropped every 0.5 s.</p>
+        </div>
+
+        <canvas id="simCanvas" class="sim-canvas" width="980" height="300"
+                role="img" aria-label="Cart moving along a 20 meter track"></canvas>
+
+        <dl class="metrics-grid" aria-label="Live readouts" aria-live="off">
+          <div><dt>Time</dt><dd id="metricT">0.00 s</dd></div>
+          <div><dt>Position</dt><dd id="metricX">--</dd></div>
+          <div><dt>Velocity</dt><dd id="metricV">--</dd></div>
+        </dl>
+      </section>
+
+      <section class="panel full">
+        <div class="tab-nav" role="tablist">
+          <button class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="discovery">Guided Discovery</button>
+          <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="theory">Theory</button>
+        </div>
+
+        <div id="discoveryTab" class="tab-panel active" role="tabpanel">
+          <h2>Discovery Prompts</h2>
+          <details open>
+            <summary>1) Steady speed</summary>
+            <p>Load <strong>Steady speed</strong>. Look at the spacing of the motion map dots.</p>
+            <p><strong>Question:</strong> What does equal spacing tell you about the velocity?</p>
+          </details>
+          <details>
+            <summary>2) Speeding up</summary>
+            <p>Load <strong>Speeding up</strong>. Predict where the cart will be at t = 4 s before you press Start.</p>
+            <p><strong>Question:</strong> How did the dot spacing change, and why?</p>
+          </details>
+          <details>
+            <summary>3) Moving one way, accelerating the other</summary>
+            <p>Load <strong>Turnaround</strong>. The cart starts moving right while the acceleration points left.</p>
+            <p><strong>Question:</strong> At the instant the cart turns around, what is its velocity? Its acceleration?</p>
+          </details>
+        </div>
+
+        <div id="theoryTab" class="tab-panel" role="tabpanel">
+          <h2>Model Used Here</h2>
+          <p>The cart has constant acceleration, so its motion follows</p>
+          <p class="callout"><span class="mono">x = x₀ + v₀t + ½at²</span> and <span class="mono">v = v₀ + at</span></p>
+          <p class="hint">See PHYSICS.md in the repository for derivations and common misconceptions.</p>
+        </div>
+      </section>
+
+      <section class="panel full">
+        <div class="panel-head">
+          <h2>Recorded Trials</h2>
+          <p class="info-line">Record a trial after a run to compare settings.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>x₀ (m)</th><th>v₀ (m/s)</th><th>a (m/s²)</th><th>t (s)</th><th>x (m)</th><th>v (m/s)</th></tr>
+            </thead>
+            <tbody id="trialTableBody">
+              <tr><td colspan="7">No trials recorded yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="button-row compact">
+          <button id="clearBtn" class="ghost" type="button">Clear Table</button>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="site-footer">
+      <p>© 2026 Vladimir Lopez · The Thinking Experiment · Interactive Physics Simulations</p>
+    </footer>
+  </div>
+
+  <script src="src/js/physics.js"></script>
+  <script src="src/js/app.js"></script>
+</body>
+</html>

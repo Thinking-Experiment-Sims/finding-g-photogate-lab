@@ -1,0 +1,4 @@
+/* sim.css — styles specific to THIS simulation.
+   Shared components live in sim-core.css (do not edit that file here; see AGENTS.md §1.4). */
+
+.sim-canvas { aspect-ratio: 980 / 300; }
