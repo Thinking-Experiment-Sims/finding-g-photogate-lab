@@ -1,20 +1,19 @@
-# Constant Acceleration Cart <!-- TEMPLATE: rename -->
+# Physics Data Lab
 
-An interactive inquiry simulation for **The Thinking Experiment**.
+A browser-based data collection and analysis app for high-school physics, by **The Thinking Experiment**.
+Module 1: **Falling Motion — Photogates** (finding *g* with Vernier Go Direct Photogates on a stand).
 
-[![Live Simulation](https://img.shields.io/badge/Live_Simulation-GitHub_Pages-0f7e9b?style=for-the-badge)](https://thinking-experiment-sims.github.io/REPO_NAME/)
-[![Physics Guide](https://img.shields.io/badge/Physics_Guide-PHYSICS.md-d67b19?style=for-the-badge)](./PHYSICS.md)
-[![Simulation Hub](https://img.shields.io/badge/Simulation_Hub-The_Thinking_Experiment-123140?style=for-the-badge)](https://thinking-experiment-sims.github.io/interactive-physics/)
+- Live app: https://thinking-experiment-sims.github.io/finding-g-photogate-lab/
+- Specification: [docs/SPEC.md](docs/SPEC.md)
+- Rules for contributors and AI agents: [AGENTS.md](AGENTS.md)
+- Virtual version of this lab: https://thinking-experiment-sims.github.io/measuring-g-acceleration-lab/
 
-## What students do
-<!-- 3–5 bullets: the investigations / presets and the question each answers. -->
-
-## Classroom use
-<!-- Course + unit, time needed, worksheet it pairs with, prerequisite ideas. -->
+Connecting real Vernier sensors requires **Google Chrome** (or Edge). Simulated mode works in any browser.
 
 ## Development
-- No build step: open `index.html` in a browser.
-- `npm test` runs the physics tests (Node 22+).
-- Rules for AI agents and contributors: [AGENTS.md](AGENTS.md).
-
-Created from [`sim-template`](https://github.com/Thinking-Experiment-Sims/sim-template).
+```
+npm ci
+npm run dev     # local preview
+npm test        # unit tests
+npm run build   # static site in dist/
+```

@@ -1,17 +1,21 @@
 ## Agent
 <!-- Claude / Codex / Gemini / Human -->
 
-## What this version does
-<!-- Features, scenarios/presets, design decisions. Screenshots welcome. -->
+## Spec stage(s) covered
+<!-- e.g. "Stages 1–4" from docs/SPEC.md -->
 
-## Physics
-<!-- Model and equations used; assumptions; one hand-checked example. -->
+## What this version does / key architecture decisions
 
-## Checklist (AGENTS.md §6)
-- [ ] `npm test` passes; new physics has tests
-- [ ] No console errors; works from `file://` and GitHub Pages
-- [ ] Light + dark mode checked; 380 px wide checked
-- [ ] `sim-core.css` untouched; only teal/amber palette
-- [ ] Title, meta description, README, PHYSICS.md updated (no template leftovers)
+## Math
+<!-- Models and formulas used; one hand-checked example. -->
 
-## Known gaps / questions for reviewers
+## Checklist (AGENTS.md §3)
+- [ ] `npm ci && npm test && npm run build` pass; new math has tests
+- [ ] No console errors; no NaN/Infinity reachable in the UI
+- [ ] Simulated data clearly labeled; no fake hardware claims
+- [ ] Brand palette only; works at 1366×768 and iPad width
+
+## NOT tested
+<!-- Be explicit, especially anything involving real Vernier hardware. -->
+
+## Questions / risks for Vladimir
