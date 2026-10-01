@@ -13,21 +13,26 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('package.json') != '' }}
+    outputs:
+      exists: ${{ steps.app.outputs.exists }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - id: app
+        run: if [ -f package.json ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "No package.json yet - nothing to deploy."; fi
+      - if: steps.app.outputs.exists == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+      - if: steps.app.outputs.exists == 'true'
+        run: npm ci && npm test && npm run build
+      - if: steps.app.outputs.exists == 'true'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: dist
   deploy:
     needs: build
+    if: needs.build.outputs.exists == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

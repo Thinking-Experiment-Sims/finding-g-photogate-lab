@@ -6,13 +6,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('package.json') != '' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - id: app
+        run: if [ -f package.json ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "No package.json yet - skipping."; fi
+      - if: steps.app.outputs.exists == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
+      - if: steps.app.outputs.exists == 'true'
+        run: npm ci
+      - if: steps.app.outputs.exists == 'true'
+        run: npm test
+      - if: steps.app.outputs.exists == 'true'
+        run: npm run build
