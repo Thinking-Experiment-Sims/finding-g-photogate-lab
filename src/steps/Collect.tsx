@@ -52,7 +52,7 @@ export function Collect(p: Props) {
         <span className="badge">{p.mode === 'vernier' ? 'Hardware (experimental)' : 'Simulated data'}</span>
         <strong>{MODE_NAME[p.mode]}</strong>
         <button className="btn btn-quiet" onClick={p.onChangeSource}>
-          Change data source
+          {p.mode === 'vernier' ? 'Disconnect gates & change source' : 'Change data source'}
         </button>
       </div>
 
@@ -162,6 +162,11 @@ export function Collect(p: Props) {
                           <span className={live ? 'beam-dot on' : members.every((m) => m.rawTime !== null) ? 'beam-dot done' : 'beam-dot'} aria-hidden="true" />
                           {members[0].groupLabel ?? 'Photogate'}
                           {live && <span className="sr-only"> (beam blocked)</span>}
+                          {members.length !== 2 && (
+                            <div className="field-msg">
+                              This photogate reports {members.length} beam channel{members.length === 1 ? '' : 's'} (expected 2). See Troubleshooting.
+                            </div>
+                          )}
                         </th>
                         <td>
                           <input
@@ -270,7 +275,7 @@ export function Collect(p: Props) {
               <>
                 {!p.armed ? (
                   <button className="btn btn-primary" disabled={p.rows.length < 3} onClick={p.onArm}>
-                    {fired > 0 ? 'Drop again' : 'Arm the gates'}
+                    {fired > 0 ? 'Run again (keep gates & heights)' : 'Arm the gates'}
                   </button>
                 ) : sim ? (
                   <button className="btn btn-accent" onClick={p.onDrop}>
@@ -287,8 +292,8 @@ export function Collect(p: Props) {
                 </button>}
               </>
             )}
-            <button className="btn" onClick={p.onReset}>
-              Reset experiment
+            <button className="btn" onClick={p.onReset} title="Clears the heights and times. Connected gates stay connected.">
+              Clear heights &amp; times
             </button>
             <button className="btn" disabled={ready.usable === 0} onClick={p.onExport}>
               Export CSV

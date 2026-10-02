@@ -12,7 +12,7 @@ const GATE_NAME_PREFIX = 'GDX-VPG';
 /** Sensor channel 4 = "Gate 1" state in Vernier's example: value 1 = blocked, 0 = clear. Used only if no gate sensors are found by name. */
 const GATE_1_CHANNEL = 4;
 /** A Go Direct Photogate has two beams. We find them by sensor name ("Gate 1", "Gate 2") so we do not hard-code channel numbers. */
-const GATE_NAME = /^gate\s*([12])\b/i;
+const GATE_NAME = /^gate\s*([12])$/i;
 
 /** Minimal shape of what we use from @vernier/godirect (the library ships loose types). */
 interface GdxSensor {
@@ -126,7 +126,8 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     const devName = device.name || ble.name || 'Photogate';
 
     this.diag.push(`${devName}: channels ${device.sensors.map((s) => `${s.number}="${s.name}"${s.unit ? ` (${s.unit})` : ''}`).join(', ') || '(none reported)'}`);
-    let gateSensors = device.sensors.filter((s) => GATE_NAME.test(s.name)).sort((a, b) => a.number - b.number);
+    // Exact names only ("Gate 1", "Gate 2"): a loose match could also catch other channels (e.g. "Gate 1 Time") and create phantom beams.
+    let gateSensors = device.sensors.filter((s) => GATE_NAME.test(s.name.trim())).sort((a, b) => a.number - b.number);
     if (gateSensors.length === 0) {
       const fallback = device.getSensor(GATE_1_CHANNEL);
       if (fallback) {
@@ -140,6 +141,7 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     }
 
     this.deviceLabels.set(ble.id, devName);
+    this.diag.push(`${devName}: listening to ${gateSensors.length} beam channel${gateSensors.length === 1 ? '' : 's'}: ${gateSensors.map((x) => `${x.number}="${x.name}"`).join(', ')}`);
     const added: Beam[] = gateSensors.map((sensor) => {
       const m = GATE_NAME.exec(sensor.name);
       const label = `${devName} · beam ${m ? m[1] : sensor.number}`;

@@ -130,6 +130,20 @@ export default function App() {
 
   const clearTimes = () => setRows((r) => r.map((x) => ({ ...x, rawTime: null })));
 
+  /** Clear the heights and times but KEEP the connected gates (or the simulated stand). */
+  const clearAll = () => {
+    if (mode === 'example') {
+      chooseMode('example');
+      return;
+    }
+    src?.disarm();
+    setArmed(false);
+    setError(null);
+    setCreases({});
+    setRows((r) => r.map((x) => ({ ...x, positionText: '', rawTime: null })));
+    resetAnalysis();
+  };
+
   const arm = () => {
     clearTimes();
     resetAnalysis();
@@ -218,7 +232,7 @@ export default function App() {
               onRefresh={() => bump((n) => n + 1)}
               onArm={arm}
               onDrop={() => (src as SimulatedPhotogateSource | null)?.drop()}
-              onReset={() => chooseMode(mode)}
+              onReset={clearAll}
               onExport={exportCsv}
               onNext={() => goto('position')}
               onChangeSource={() => { disposeSource(); setMode(null); setRows([]); }}
