@@ -38,6 +38,18 @@ describe('SimulatedPhotogateSource', () => {
     expect(s.gates().every((g) => g.beam === 'clear')).toBe(true); // …and nothing is stuck blocked
   });
 
+  it('restarting (arming again) discards the unfinished drop\'s pending gate events', () => {
+    const s = new SimulatedPhotogateSource();
+    const blocked: string[] = [];
+    s.subscribe((e) => e.type === 'blocked' && blocked.push(e.gateId));
+    s.arm();
+    s.drop();
+    vi.advanceTimersByTime(200); // gate 1 has fired; the rest are pending
+    s.arm(); // restart
+    vi.advanceTimersByTime(3000);
+    expect(blocked).toHaveLength(1); // nothing from the old drop arrives after the restart
+  });
+
   it('reports every gate in height order when allowed to finish', () => {
     const s = new SimulatedPhotogateSource();
     const times: number[] = [];

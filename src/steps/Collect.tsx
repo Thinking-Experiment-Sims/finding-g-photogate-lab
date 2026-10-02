@@ -284,6 +284,11 @@ export function Collect(p: Props) {
                 ) : (
                   <span className="armed-note">Armed — release the object now.</span>
                 )}
+                {p.armed && (
+                  <button className="btn" onClick={p.onArm} title="Throw away this attempt's times and listen again. Your heights stay.">
+                    Restart drop (keep heights)
+                  </button>
+                )}
                 <button className="btn" onClick={p.onAddGate}>
                   {p.mode === 'vernier' ? 'Connect a photogate' : 'Add gate'}
                 </button>

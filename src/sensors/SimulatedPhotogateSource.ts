@@ -82,6 +82,7 @@ export class SimulatedPhotogateSource implements PhotogateSource {
   }
 
   arm() {
+    this.cancelTimers(); // a restart must not inherit gate events from an earlier, unfinished drop
     this.armed = true;
   }
 
