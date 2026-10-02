@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { deriveRows, exampleRows, measurements, parsePosition, readiness, toCsv, type GateRow } from './experiments/fallingMotion/model';
+import { distinctHeights, exampleRows, measurements, parsePosition, stationRows, toCsv, type GateRow, type SavedPoint } from './experiments/fallingMotion/model';
 import { fitPosition, linearizationValid, linearizedFit, quadraticAcceleration, velocityFit } from './physics/kinematics';
 import { GoDirectPhotogateSource, webBluetoothSupported } from './sensors/GoDirectPhotogateSource';
 import { SimulatedPhotogateSource } from './sensors/SimulatedPhotogateSource';
@@ -27,6 +27,8 @@ export default function App() {
   const [rows, setRows] = useState<GateRow[]>([]);
   /** One crease height (text) per two-beam photogate, keyed by device id. */
   const [creases, setCreases] = useState<Record<string, string>>({});
+  /** Points kept from earlier drops (height + time relative to that drop's first gate), pooled with the current drop. */
+  const [saved, setSaved] = useState<SavedPoint[]>([]);
   const [beams, setBeams] = useState<Record<string, GateInfo['beam']>>({});
   const [armed, setArmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +75,7 @@ export default function App() {
     setBeams({});
     resetAnalysis();
     setCreases({});
+    setSaved([]);
     setStep('collect');
     if (m === 'example') {
       setRows(exampleRows());
@@ -94,27 +97,58 @@ export default function App() {
   }, [rows, armed]);
 
   const src = sourceRef.current;
-  // Rows with heights filled in from the crease heights (for two-beam photogates).
-  const eff = useMemo(() => deriveRows(rows, creases), [rows, creases]);
-  const data: Datum[] = useMemo(() => measurements(eff).map((m) => ({ t: m.time, y: m.position })), [eff]);
-  const ready = readiness(eff);
-  const canAnalyze = ready.usable >= 3;
+  // One station per photogate: crease height + mean of its two beam times. Ungrouped (simulated) gates are already stations.
+  const stations = useMemo(() => stationRows(rows, creases), [rows, creases]);
+  const currentPoints = useMemo(() => measurements(stations), [stations]);
+  // The graphs use every kept drop plus the current one.
+  const data: Datum[] = useMemo(
+    () => [...saved.map((p) => ({ t: p.t, y: p.y })), ...currentPoints.map((m) => ({ t: m.time, y: m.position }))],
+    [saved, currentPoints],
+  );
+  const heightsCount = distinctHeights(data);
+  // Every drop's time zero is its first gate, so that gate must be at the same height in every drop.
+  const referenceHeights = [...saved.filter((p) => p.t === 0).map((p) => p.y), ...currentPoints.filter((m) => m.time === 0).map((m) => m.position)];
+  const referenceMoved = distinctHeights(referenceHeights.map((y) => ({ y }))) > 1;
+  const analysisBlocker =
+    referenceMoved
+      ? 'The first (top) gate changed height between drops. Put it back, or clear the saved drops.'
+      : data.length < 3
+        ? 'Needs at least 3 points. Keep this drop, move a photogate, and drop again — or add another photogate.'
+        : heightsCount < 3
+          ? `Only ${heightsCount} different height${heightsCount === 1 ? '' : 's'} so far; a curve fit needs at least 3. Keep this drop, move a photogate to a NEW height, enter it, and drop again.`
+          : null;
+  const canAnalyze = analysisBlocker === null;
   const fit = useMemo(() => fitPosition(data), [data]);
   const dataLabel = mode === 'vernier' ? 'Vernier Go Direct Photogates (experimental)' : 'Simulated data';
 
   const estimates: Estimate[] = useMemo(() => {
     const vf = velocityFit(records);
     const lf = linearizedFit(data, lin.xT, lin.yT);
-    const linOk = lf.ok && lf.value.r2 >= STRAIGHT_R2 && linearizationValid(data, lin.xT, lin.yT) && lin.k !== null;
+    const straight = lf.ok && lf.value.r2 >= STRAIGHT_R2;
+    const valid = linearizationValid(data, lin.xT, lin.yT);
     return [
-      { key: 'quad', method: '1 · Quadratic fit', how: 'g = |2A| from y(t) = At² + Bt + C', g: fit.ok ? Math.abs(quadraticAcceleration(fit.value)) : null },
+      {
+        key: 'quad',
+        method: '1 · Quadratic fit',
+        how: 'g = |2A| from y(t) = At² + Bt + C',
+        g: fit.ok ? Math.abs(quadraticAcceleration(fit.value)) : null,
+        sigma: fit.ok && fit.value.seA !== undefined ? 2 * fit.value.seA : undefined,
+      },
       {
         key: 'vel',
         method: '2 · Velocity graph',
         how: 'g = |slope| of v vs. t, from tangent lines on the fitted curve',
         g: vf.ok && records.length >= 2 ? Math.abs(vf.value.m) : null,
+        sigma: vf.ok && vf.value.seM !== undefined ? vf.value.seM : undefined,
       },
-      { key: 'lin', method: '3 · Linearization', how: 'g = |a|, with a from the slope of your straightened graph', g: linOk && lf.ok && lin.k !== null ? Math.abs(lin.k * lf.value.m) : null },
+      {
+        key: 'lin',
+        method: '3 · Linearization',
+        how: 'g = |a|, with a = k × slope of your straightened graph',
+        g: lf.ok && lin.k !== null ? Math.abs(lin.k * lf.value.m) : null,
+        sigma: lf.ok && lin.k !== null && lf.value.seM !== undefined ? Math.abs(lin.k) * lf.value.seM : undefined,
+        note: lf.ok && lin.k !== null && !(straight && valid) ? (straight ? 'Check: this graph’s slope is not a/2 for your drop' : `Check: graph not straight (R² = ${lf.value.r2.toFixed(3)})`) : undefined,
+      },
     ];
   }, [fit, records, data, lin]);
 
@@ -140,7 +174,19 @@ export default function App() {
     setArmed(false);
     setError(null);
     setCreases({});
+    setSaved([]);
     setRows((r) => r.map((x) => ({ ...x, positionText: '', rawTime: null })));
+    resetAnalysis();
+  };
+
+  /** Save this drop's points (height + time relative to its first gate), clear the times, keep the heights. */
+  const keepDrop = () => {
+    const drop = new Set(saved.map((p) => p.drop)).size + 1;
+    const label = (id: string) => stations.find((r) => r.gateId === id)?.label ?? id;
+    setSaved((prev) => [...prev, ...currentPoints.map((m) => ({ y: m.position, t: m.time, drop, label: label(m.gateId) }))]);
+    src?.disarm();
+    setArmed(false);
+    clearTimes();
     resetAnalysis();
   };
 
@@ -153,7 +199,9 @@ export default function App() {
   };
 
   const exportCsv = () => {
-    const blob = new Blob([toCsv(eff, dataLabel)], { type: 'text/csv' });
+    const drop = new Set(saved.map((p) => p.drop)).size + 1;
+    const pts = [...saved, ...currentPoints.map((m) => ({ y: m.position, t: m.time, drop, label: stations.find((r) => r.gateId === m.gateId)?.label ?? m.gateId }))];
+    const blob = new Blob([toCsv(pts, dataLabel)], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = mode === 'vernier' ? 'falling-motion-photogates.csv' : 'falling-motion-SIMULATED.csv';
@@ -218,7 +266,12 @@ export default function App() {
             <Collect
               mode={mode}
               source={src}
-              rows={eff}
+              rows={stations}
+              beamRows={rows}
+              saved={saved}
+              onKeep={keepDrop}
+              onClearSaved={() => { setSaved([]); resetAnalysis(); }}
+              analysisBlocker={analysisBlocker}
               creases={creases}
               onCrease={(group, text) => { setCreases((c) => ({ ...c, [group]: text })); resetAnalysis(); }}
               beams={beams}

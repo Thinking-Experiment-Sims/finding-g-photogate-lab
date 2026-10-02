@@ -213,3 +213,29 @@ describe('linearization validity (decided by physics, not R²)', () => {
     expect(linearizationValid(nearRelease.slice(0, 2), 't2', 'y')).toBe(false);
   });
 });
+
+describe('standard errors', () => {
+  it('quadratic seA is ~0 for exact data and matches a hand-checked noisy case', () => {
+    expect(ok(quadraticFit(known)).seA).toBeLessThan(1e-8);
+    // y = t² + noise on 5 equally spaced points; SE computed independently from (XᵀX)⁻¹ with n−3 = 2 dof.
+    const t = [-2, -1, 0, 1, 2];
+    const noise = [0.1, -0.1, 0.05, -0.05, 0.08];
+    const pts = t.map((x, i) => ({ x, y: x * x + noise[i] }));
+    const f = ok(quadraticFit(pts));
+    // closed form for symmetric x: Var(A) = σ² / (Σx⁴ − (Σx²)²/n)
+    const res = pts.map((p) => p.y - (f.A * p.x * p.x + f.B * p.x + f.C));
+    const sigma2 = res.reduce((a, r) => a + r * r, 0) / 2;
+    const expected = Math.sqrt(sigma2 / (34 - (10 * 10) / 5));
+    expect(f.seA).toBeCloseTo(expected, 8);
+  });
+  it('is undefined (not NaN) when there are too few points', () => {
+    expect(ok(quadraticFit(known.slice(0, 3))).seA).toBeUndefined();
+    expect(ok(linearFit([{ x: 0, y: 0 }, { x: 1, y: 1 }])).seM).toBeUndefined();
+  });
+  it('linear seM matches the closed form', () => {
+    const pts = [0, 1, 2, 3, 4].map((x, i) => ({ x, y: 2 * x + [0.1, -0.2, 0.15, -0.05, 0.1][i] }));
+    const f = ok(linearFit(pts));
+    const res = pts.map((p) => p.y - (f.m * p.x + f.b));
+    expect(f.seM).toBeCloseTo(Math.sqrt(res.reduce((a, r) => a + r * r, 0) / 3 / 10), 10);
+  });
+});

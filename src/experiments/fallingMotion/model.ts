@@ -13,8 +13,6 @@ export interface GateRow {
   groupLabel?: string;
 }
 
-/** The two beams of a Go Direct Photogate are about 2 cm apart. */
-export const BEAM_SPACING = 0.02; // m
 
 export interface PhotogateMeasurement {
   gateId: string;
@@ -89,17 +87,14 @@ const csvEscape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"
 
 /**
  * CSV of the measurements. Row 1 is the header the spec names (gate, position_m, time_s); position_m is the height above the table.
- * A data_source column keeps simulated data labeled even after it leaves the app. Gates missing either value are omitted.
+ * data_source keeps simulated data labeled after it leaves the app; drop numbers the kept drops (the current drop is last).
  */
-export function toCsv(rows: GateRow[], dataLabel: string): string {
-  const times = relativeTimes(rows);
-  const lines = ['gate,position_m,time_s,data_source'];
-  rows.forEach((r) => {
-    const p = parsePosition(r.positionText);
-    const t = times.get(r.gateId);
-    if (p === null || t === undefined) return;
-    lines.push([csvEscape(r.label), p.toFixed(4), t.toFixed(5), csvEscape(dataLabel)].join(','));
-  });
+export function toCsv(points: { label: string; y: number; t: number; drop: number }[], dataLabel: string): string {
+  const lines = ['gate,position_m,time_s,data_source,drop'];
+  for (const p of points) {
+    if (!Number.isFinite(p.y) || !Number.isFinite(p.t)) continue;
+    lines.push([csvEscape(p.label), p.y.toFixed(4), p.t.toFixed(5), csvEscape(dataLabel), String(p.drop)].join(','));
+  }
   return lines.join('\n') + '\n';
 }
 
@@ -114,22 +109,49 @@ export function exampleRows(rand: () => number = Math.random): GateRow[] {
 }
 
 /**
- * Rows for two-beam photogates get their heights from ONE crease height per photogate (typed by the student, halfway between
- * the beams): the beam that fires first is the upper one (the object is falling), at crease + 1 cm; the other is at crease − 1 cm.
- * Ungrouped rows pass through unchanged. Before both beams have fired the order is unknown, so beams are assigned in row order.
+ * Turns raw beam rows into one STATION per physical photogate: height = the crease height the student typed (halfway between the
+ * two beams), time = the mean of its beams' times (available only once every beam has fired). Averaging the two beams halves the
+ * timing noise and avoids guessing which beam is on top. Ungrouped rows (simulated gates) are already stations and pass through.
  */
-export function deriveRows(rows: GateRow[], creases: Record<string, string>): GateRow[] {
-  const out = rows.map((r) => ({ ...r }));
-  const groups = new Set(rows.filter((r) => r.groupId).map((r) => r.groupId as string));
-  for (const g of groups) {
-    const members = out.filter((r) => r.groupId === g);
-    const crease = parsePosition(creases[g] ?? '');
-    const ordered = [...members].sort((a, b) => (a.rawTime ?? Infinity) - (b.rawTime ?? Infinity));
-    ordered.forEach((r, i) => {
-      if (crease === null) r.positionText = creases[g] ?? '';
-      else if (members.length === 1) r.positionText = crease.toFixed(3);
-      else r.positionText = (crease + (i === 0 ? BEAM_SPACING / 2 : -BEAM_SPACING / 2)).toFixed(3);
+export function stationRows(rows: GateRow[], creases: Record<string, string>): GateRow[] {
+  const out: GateRow[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (!r.groupId) {
+      out.push(r);
+      continue;
+    }
+    if (seen.has(r.groupId)) continue;
+    seen.add(r.groupId);
+    const members = rows.filter((m) => m.groupId === r.groupId);
+    const times = members.map((m) => m.rawTime);
+    const complete = times.every((t): t is number => t !== null && Number.isFinite(t));
+    out.push({
+      gateId: r.groupId,
+      label: r.groupLabel ?? r.label,
+      positionText: creases[r.groupId] ?? '',
+      rawTime: complete ? (times as number[]).reduce((a, b) => a + b, 0) / times.length : null,
     });
   }
   return out;
+}
+
+/** A point kept from an earlier drop: height and time relative to that drop's first gate. */
+export interface SavedPoint {
+  y: number;
+  t: number;
+  drop: number;
+  label: string;
+}
+
+/** Number of distinct heights (more than 5 mm apart). A quadratic fit needs at least 3. */
+export function distinctHeights(points: { y: number }[]): number {
+  const ys = points.map((p) => p.y).filter(Number.isFinite).sort((a, b) => a - b);
+  let n = 0;
+  let last = -Infinity;
+  for (const y of ys) {
+    if (y - last > 0.005) n += 1;
+    last = y;
+  }
+  return n;
 }

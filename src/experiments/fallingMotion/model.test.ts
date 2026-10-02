@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveRows, exampleRows, measurements, parsePosition, readiness, relativeTimes, rowStatuses, toCsv, type GateRow } from './model';
+import { distinctHeights, exampleRows, stationRows, measurements, parsePosition, readiness, relativeTimes, rowStatuses, toCsv, type GateRow } from './model';
 import { fitPosition, quadraticAcceleration } from '../../physics/kinematics';
 
 const row = (id: string, pos: string, t: number | null): GateRow => ({ gateId: id, label: id, positionText: pos, rawTime: t });
@@ -43,12 +43,19 @@ describe('table model', () => {
 });
 
 describe('CSV export', () => {
-  it('puts the header in row 1, labels the data source on every row, and omits incomplete rows', () => {
-    const csv = toCsv([row('Gate 1', '0.1', 0.2), row('Gate, 2', '0.3', 0.5), row('Gate 3', '', 0.6)], 'Simulated data');
+  it('puts the header in row 1, labels the data source and drop on every row, and skips non-finite points', () => {
+    const csv = toCsv(
+      [
+        { label: 'Gate 1', y: 0.1, t: 0, drop: 1 },
+        { label: 'Gate, 2', y: 0.3, t: 0.3, drop: 2 },
+        { label: 'Gate 3', y: NaN, t: 0.6, drop: 2 },
+      ],
+      'Simulated data',
+    );
     const lines = csv.trim().split('\n');
-    expect(lines[0]).toBe('gate,position_m,time_s,data_source');
-    expect(lines[1]).toBe('Gate 1,0.1000,0.00000,Simulated data');
-    expect(lines[2]).toBe('"Gate, 2",0.3000,0.30000,Simulated data');
+    expect(lines[0]).toBe('gate,position_m,time_s,data_source,drop');
+    expect(lines[1]).toBe('Gate 1,0.1000,0.00000,Simulated data,1');
+    expect(lines[2]).toBe('"Gate, 2",0.3000,0.30000,Simulated data,2');
     expect(lines).toHaveLength(3);
   });
 });
@@ -63,24 +70,35 @@ describe('example experiment', () => {
   });
 });
 
-describe('deriveRows (two-beam photogates)', () => {
-  const beam = (id: string, group: string, t: number | null): GateRow => ({ gateId: id, label: id, positionText: '', rawTime: t, groupId: group });
-  it('puts the first beam to fire 1 cm above the crease and the second 1 cm below', () => {
-    const rows = deriveRows([beam('a1', 'A', 0.3002), beam('a2', 'A', 0.2995)], { A: '0.640' });
-    expect(rows.find((r) => r.gateId === 'a2')!.positionText).toBe('0.650'); // fired first → upper
-    expect(rows.find((r) => r.gateId === 'a1')!.positionText).toBe('0.630');
+describe('stationRows (two-beam photogates → one station each)', () => {
+  const beam = (id: string, group: string, t: number | null): GateRow => ({ gateId: id, label: id, positionText: '', rawTime: t, groupId: group, groupLabel: `GDX ${group}` });
+  it('one station per photogate: crease height, mean of the two beam times', () => {
+    const st = stationRows([beam('a1', 'A', 0.30), beam('a2', 'A', 0.32), beam('b1', 'B', 0.50), beam('b2', 'B', 0.52)], { A: '0.900', B: '0.500' });
+    expect(st).toHaveLength(2);
+    expect(st[0]).toMatchObject({ gateId: 'A', positionText: '0.900' });
+    expect(st[0].rawTime).toBeCloseTo(0.31, 12);
+    expect(st[1].rawTime).toBeCloseTo(0.51, 12);
   });
-  it('keeps ungrouped rows, reports typed text while invalid, and leaves heights blank when empty', () => {
-    expect(deriveRows([row('x', '0.5', 1)], {})[0].positionText).toBe('0.5');
-    expect(deriveRows([beam('a1', 'A', null), beam('a2', 'A', null)], { A: 'abc' }).map((r) => r.positionText)).toEqual(['abc', 'abc']);
-    expect(deriveRows([beam('a1', 'A', null)], {})[0].positionText).toBe('');
+  it('is not timed until every beam has fired, and does not depend on beam order', () => {
+    expect(stationRows([beam('a1', 'A', 0.3), beam('a2', 'A', null)], { A: '0.9' })[0].rawTime).toBeNull();
+    const x = stationRows([beam('a1', 'A', 0.30), beam('a2', 'A', 0.32)], { A: '0.9' })[0].rawTime;
+    const y = stationRows([beam('a2', 'A', 0.32), beam('a1', 'A', 0.30)], { A: '0.9' })[0].rawTime;
+    expect(x).toBe(y);
   });
-  it('two photogates give four usable measurements', () => {
-    const rows = deriveRows(
-      [beam('a1', 'A', 0.20), beam('a2', 'A', 0.21), beam('b1', 'B', 0.35), beam('b2', 'B', 0.36)],
-      { A: '0.900', B: '0.500' },
-    );
-    expect(measurements(rows)).toHaveLength(4);
-    expect(readiness(rows).complete).toBe(true);
+  it('passes ungrouped rows through and keeps invalid typed text for validation', () => {
+    expect(stationRows([row('x', '0.5', 1)], {})[0].positionText).toBe('0.5');
+    expect(stationRows([beam('a1', 'A', 1), beam('a2', 'A', 1)], { A: 'abc' })[0].positionText).toBe('abc');
+  });
+  it('two photogates are two usable stations, which is not yet enough for a quadratic', () => {
+    const st = stationRows([beam('a1', 'A', 0.2), beam('a2', 'A', 0.21), beam('b1', 'B', 0.35), beam('b2', 'B', 0.36)], { A: '0.900', B: '0.500' });
+    expect(measurements(st)).toHaveLength(2);
+    expect(readiness(st).complete).toBe(false);
+  });
+});
+
+describe('distinctHeights', () => {
+  it('counts heights more than 5 mm apart', () => {
+    expect(distinctHeights([{ y: 0.9 }, { y: 0.9 }, { y: 0.902 }, { y: 0.5 }])).toBe(2);
+    expect(distinctHeights([{ y: 0.9 }, { y: 0.5 }, { y: 0.2 }, { y: NaN }])).toBe(3);
   });
 });

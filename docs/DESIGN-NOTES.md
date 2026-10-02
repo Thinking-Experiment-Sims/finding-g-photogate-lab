@@ -21,8 +21,19 @@ Decisions that differ from, or go beyond, `SPEC.md`. Each was made on purpose; o
    when Vernier mode is chosen).
 5. **`text-encoding` alias.** `@vernier/godirect` has an undeclared fallback import of `text-encoding`; `vite.config.ts` aliases it to
    the browser's native `TextDecoder` instead of adding a package.
-6. **Two-beam photogates → one crease height.** A Go Direct Photogate has two beams ~2 cm apart. Students measure and enter ONE height: the
+6. **A photogate is ONE station, not two points (accuracy fix).** The two beams are only 2 cm apart, so using each beam as a data point
+   puts the points in tight clusters and makes a quadratic fit extremely ill-conditioned. Monte Carlo (2 photogates, 4 beams): even with 2 ms
+   timing noise, g = 13.7 ± 12.8 m/s². So each photogate is now one station: the crease height the student typed, and the **mean** of its two
+   beam times (halves the noise; no need to guess which beam is on top). `stationRows()` in `model.ts`.
+7. **Pool several drops.** "Keep this drop & run again" saves a drop's (height, time) points (time relative to that drop's first gate), so
+   students with few photogates can move one to a new height and drop again; all drops are fitted together. The top (first) photogate must
+   stay put as the time reference (checked). Needs ≥ 3 different heights before analysis. Monte Carlo of two photogates over 5 drops (unbiased,
+   mean 9.8): ±0.4 m/s² at 0.8 ms per-gate timing noise, ±0.9 at 2 ms, ±3.6 at 8 ms. **Timing noise is the limit**, not the algorithm.
+8. **Uncertainty shown.** g ± σ (standard error of A, of the v–t slope, of the linearization slope) so students see how trustworthy each value is.
+9. **The linearization slope is always visible and recordable** with its uncertainty, even if the graph is not straight or the pair is not valid
+   (with a caution), and the comparison table includes method 3 whenever the student has chosen how *a* relates to the slope.
+10. **Two-beam photogates → one crease height.** A Go Direct Photogate has two beams ~2 cm apart. Students measure and enter ONE height: the
    crease between the beams. The app derives the beam heights (crease ± 1 cm; the beam that fires first is the upper one because the object
    is falling), so two photogates give four data points. `deriveRows()` in `model.ts`.
-7. **Row → gate mapping (the Graphical Analysis complaint).** Each table row is one gate; its dot lights amber while that physical
+11. **Row → gate mapping (the Graphical Analysis complaint).** Each table row is one gate; its dot lights amber while that physical
    gate's beam is blocked ("block a gate with your hand to find its row"). Times are shown as one number per gate, in seconds, relative to the first gate.

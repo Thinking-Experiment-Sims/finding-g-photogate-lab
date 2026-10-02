@@ -6,6 +6,10 @@ export interface Estimate {
   method: string;
   how: string;
   g: number | null;
+  /** Uncertainty (one standard error) in g, when it can be computed. */
+  sigma?: number;
+  /** Caution to show next to the value. */
+  note?: string;
 }
 
 export function Compare({ estimates, onExport }: { estimates: Estimate[]; onExport: () => void }) {
@@ -25,7 +29,7 @@ export function Compare({ estimates, onExport }: { estimates: Estimate[]; onExpo
               <tr>
                 <th scope="col">Method</th>
                 <th scope="col">How it works</th>
-                <th scope="col"><i>g</i> (m/s²)</th>
+                <th scope="col"><i>g</i> ± uncertainty (m/s²)</th>
                 <th scope="col">Difference from 9.81</th>
               </tr>
             </thead>
@@ -34,7 +38,11 @@ export function Compare({ estimates, onExport }: { estimates: Estimate[]; onExpo
                 <tr key={e.key}>
                   <th scope="row">{e.method}</th>
                   <td>{e.how}</td>
-                  <td className="result">{fmt(e.g, 2)}</td>
+                  <td className="result">
+                    {fmt(e.g, 2)}
+                    {e.sigma !== undefined && e.g !== null && <span className="sigma"> ± {fmt(e.sigma, 2)}</span>}
+                    {e.note && <div className="field-msg">{e.note}</div>}
+                  </td>
                   <td>{e.g === null ? 'not finished yet' : `${fmt(percentDifference(e.g), 1)} %`}</td>
                 </tr>
               ))}

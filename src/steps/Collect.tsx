@@ -1,6 +1,6 @@
 import { Stand } from '../components/Stand';
 import { fmt } from '../format';
-import { BEAM_SPACING, parsePosition, readiness, rowStatuses, type GateRow } from '../experiments/fallingMotion/model';
+import { parsePosition, readiness, rowStatuses, type GateRow, type SavedPoint } from '../experiments/fallingMotion/model';
 import type { SimulatedPhotogateSource } from '../sensors/SimulatedPhotogateSource';
 import type { GateInfo, PhotogateSource } from '../sensors/types';
 import { webBluetoothSupported } from '../sensors/GoDirectPhotogateSource';
@@ -10,7 +10,15 @@ export type Mode = 'simulated' | 'vernier' | 'example';
 interface Props {
   mode: Mode;
   source: PhotogateSource | null;
+  /** One row per STATION (a photogate, or a simulated gate): crease height + mean beam time. */
   rows: GateRow[];
+  /** Raw per-beam rows (two per Go Direct photogate). */
+  beamRows: GateRow[];
+  saved: SavedPoint[];
+  onKeep: () => void;
+  onClearSaved: () => void;
+  /** Why analysis is not available yet, or null when it is. */
+  analysisBlocker: string | null;
   beams: Record<string, GateInfo['beam']>;
   armed: boolean;
   error: string | null;
@@ -41,9 +49,12 @@ export function Collect(p: Props) {
   const status = rowStatuses(p.rows);
   const ready = readiness(p.rows);
   const fired = p.rows.filter((r) => r.rawTime !== null).length;
-  const groupIds = [...new Set(p.rows.filter((r) => r.groupId).map((r) => r.groupId as string))];
+  const groupIds = [...new Set(p.beamRows.filter((r) => r.groupId).map((r) => r.groupId as string))];
   const grouped = groupIds.length > 0;
   const missingHeights = grouped ? groupIds.filter((g) => parsePosition(p.creases[g] ?? '') === null).length : ready.missingPositions;
+  const t0 = Math.min(...p.rows.filter((r) => r.rawTime !== null).map((r) => r.rawTime as number));
+  const stationOf = (g: string) => p.rows.find((r) => r.gateId === g)!;
+  const savedDrops = new Set(p.saved.map((x) => x.drop)).size;
   const sim = p.mode === 'simulated' ? (p.source as SimulatedPhotogateSource) : null;
 
   return (
@@ -139,27 +150,26 @@ export function Collect(p: Props) {
                       <span className="th-sub">between the two beams, up from the table</span>
                     </th>
                     <th scope="col">
-                      First beam <i>t</i> (s)
-                      <span className="th-sub">upper, at crease + {fmt(BEAM_SPACING * 50, 0)} cm</span>
-                    </th>
-                    <th scope="col">
-                      Second beam <i>t</i> (s)
-                      <span className="th-sub">lower, at crease − {fmt(BEAM_SPACING * 50, 0)} cm</span>
+                      Gate time <i>t</i> (s)
+                      <span className="th-sub">mean of its two beams; 0 at the first gate</span>
                     </th>
                     <th scope="col" className="sr-only">Remove</th>
                   </tr>
                 </thead>
                 <tbody>
                   {groupIds.map((g) => {
-                    const members = p.rows.filter((r) => r.groupId === g).sort((a, b) => (a.rawTime ?? Infinity) - (b.rawTime ?? Infinity));
+                    const members = p.beamRows.filter((r) => r.groupId === g);
+                    const st = stationOf(g);
+                    const stStatus = status[p.rows.indexOf(st)];
                     const live = members.some((m) => p.beams[m.gateId] === 'blocked');
-                    const problem = !members.every((m) => status[p.rows.indexOf(m)].problems.every((x) => x.startsWith('No time')));
                     const text = p.creases[g] ?? '';
-                    const msg = members.map((m) => status[p.rows.indexOf(m)].problems.find((x) => !x.startsWith('No time'))).find(Boolean);
+                    const msg = stStatus.problems.find((x) => !x.startsWith('No time'));
                     return (
                       <tr key={g} className={live ? 'live' : undefined}>
                         <th scope="row">
-                          <span className={live ? 'beam-dot on' : members.every((m) => m.rawTime !== null) ? 'beam-dot done' : 'beam-dot'} aria-hidden="true" />
+                          {members.map((m) => (
+                            <span key={m.gateId} className={p.beams[m.gateId] === 'blocked' ? 'beam-dot on' : m.rawTime !== null ? 'beam-dot done' : 'beam-dot'} aria-hidden="true" />
+                          ))}
                           {members[0].groupLabel ?? 'Photogate'}
                           {live && <span className="sr-only"> (beam blocked)</span>}
                           {members.length !== 2 && (
@@ -170,7 +180,7 @@ export function Collect(p: Props) {
                         </th>
                         <td>
                           <input
-                            className={problem && text.trim() !== '' ? 'num-input invalid' : 'num-input'}
+                            className={msg && text.trim() !== '' ? 'num-input invalid' : 'num-input'}
                             inputMode="decimal"
                             aria-label={`${members[0].groupLabel ?? 'Photogate'} crease height in meters`}
                             placeholder="e.g. 0.640"
@@ -179,14 +189,14 @@ export function Collect(p: Props) {
                           />
                           {msg && text.trim() !== '' && <div className="field-msg">{msg}</div>}
                         </td>
-                        {[0, 1].map((i) => {
-                          const t = members[i] ? status[p.rows.indexOf(members[i])].time : null;
-                          return (
-                            <td key={i} className={t === null ? 'time pending' : 'time'}>
-                              {t === null ? 'waiting…' : fmt(t, 3)}
-                            </td>
-                          );
-                        })}
+                        <td className={stStatus.time === null ? 'time pending' : 'time'}>
+                          {stStatus.time === null ? 'waiting…' : fmt(stStatus.time, 3)}
+                          {stStatus.time !== null && (
+                            <div className="beam-times">
+                              beams: {members.map((m) => (m.rawTime === null ? '—' : fmt(m.rawTime - t0, 3))).join(' / ')} s
+                            </div>
+                          )}
+                        </td>
                         <td>
                           <button className="btn btn-icon" aria-label={`Remove ${members[0].groupLabel ?? 'photogate'}`} onClick={() => p.onRemoveGate(g)}>
                             ✕
@@ -274,7 +284,7 @@ export function Collect(p: Props) {
             {p.mode !== 'example' && (
               <>
                 {!p.armed ? (
-                  <button className="btn btn-primary" disabled={p.rows.length < 3} onClick={p.onArm}>
+                  <button className="btn btn-primary" disabled={p.rows.length < 2} onClick={p.onArm}>
                     {fired > 0 ? 'Run again (keep gates & heights)' : 'Arm the gates'}
                   </button>
                 ) : sim ? (
@@ -304,13 +314,49 @@ export function Collect(p: Props) {
               Export CSV
             </button>
           </div>
-          {p.rows.length > 0 && p.rows.length < 3 && p.mode !== 'example' && <p className="hint">You need at least 3 gates.</p>}
+          {p.rows.length > 0 && p.rows.length < 2 && p.mode !== 'example' && <p className="hint">You need at least 2 gates.</p>}
+
+          {p.mode !== 'example' && (
+            <div className="saved-box">
+              <div className="actions">
+                <button className="btn btn-accent" disabled={p.armed || ready.usable < 2} onClick={p.onKeep}>
+                  Keep this drop &amp; run again
+                </button>
+                {p.saved.length > 0 && (
+                  <button className="btn btn-quiet" onClick={p.onClearSaved}>
+                    Clear saved drops
+                  </button>
+                )}
+              </div>
+              <p className="hint">
+                {p.saved.length > 0
+                  ? `Saved: ${savedDrops} drop${savedDrops === 1 ? '' : 's'} (${p.saved.length} points), pooled with the current drop. `
+                  : 'Few gates? Keep this drop, move a photogate to a new height, enter its new height, and drop again. All kept drops are combined into one graph. '}
+                Keep the <strong>top</strong> photogate at the same height for every drop — it is the time reference.
+              </p>
+              {p.saved.length > 0 && (
+                <details className="reveal">
+                  <summary>Saved points ({p.saved.length})</summary>
+                  <table className="data-table compact">
+                    <thead>
+                      <tr><th>Drop</th><th>Gate</th><th>y (m)</th><th>t (s)</th></tr>
+                    </thead>
+                    <tbody>
+                      {p.saved.map((x, i) => (
+                        <tr key={i}><td>{x.drop}</td><td>{x.label}</td><td>{fmt(x.y, 3)}</td><td>{fmt(x.t, 3)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </details>
+              )}
+            </div>
+          )}
 
           <div className="next-row">
-            <button className="btn btn-primary btn-large" disabled={ready.usable < 3} onClick={p.onNext}>
+            <button className="btn btn-primary btn-large" disabled={p.analysisBlocker !== null} onClick={p.onNext}>
               Graph position vs. time →
             </button>
-            {ready.usable < 3 && <span className="hint">Needs 3 gates with both a height and a time.</span>}
+            {p.analysisBlocker && <span className="hint">{p.analysisBlocker}</span>}
           </div>
         </section>
       </div>

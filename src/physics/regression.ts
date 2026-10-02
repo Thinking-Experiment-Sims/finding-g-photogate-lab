@@ -9,6 +9,8 @@ export interface LinearFit {
   b: number; // intercept
   r2: number;
   n: number;
+  /** Standard error of the slope (needs n ≥ 3). */
+  seM?: number;
 }
 
 export interface QuadraticFit {
@@ -17,6 +19,8 @@ export interface QuadraticFit {
   C: number;
   r2: number;
   n: number;
+  /** Standard error of A (needs n ≥ 4). g = |2A| so its uncertainty is 2·seA. */
+  seA?: number;
 }
 
 const fail = <T>(reason: string): Result<T> => ({ ok: false, reason });
@@ -68,7 +72,12 @@ export function linearFit(input: Point[]): Result<LinearFit> {
   const b = my - m * mx;
   const r2 = rSquared(pts, (x) => m * x + b);
   if (![m, b, r2].every(Number.isFinite)) return fail('The fit did not produce finite numbers.');
-  return { ok: true, value: { m, b, r2, n } };
+  let seM: number | undefined;
+  if (n >= 3) {
+    const ssRes = pts.reduce((acc, p) => acc + (p.y - (m * p.x + b)) ** 2, 0);
+    seM = Math.sqrt(ssRes / (n - 2) / sxx);
+  }
+  return { ok: true, value: { m, b, r2, n, seM: Number.isFinite(seM) ? seM : undefined } };
 }
 
 /** Solve a 3x3 system with partial pivoting. Returns null if singular. */
@@ -125,7 +134,21 @@ export function quadraticFit(input: Point[]): Result<QuadraticFit> {
   const C = (a * mx ** 2) / scale ** 2 - (b * mx) / scale + c;
   const r2 = rSquared(pts, (x) => A * x * x + B * x + C);
   if (![A, B, C, r2].every(Number.isFinite)) return fail('The fit did not produce finite numbers.');
-  return { ok: true, value: { A, B, C, r2, n } };
+  // Var(A) = σ² · [(XᵀX)⁻¹]₀₀ in the scaled variable u, divided by scale⁴ (A = a / scale²); σ² = SSres / (n − 3).
+  let seA: number | undefined;
+  if (n >= 4) {
+    const col = solve3(
+      [
+        [S[4], S[3], S[2]],
+        [S[3], S[2], S[1]],
+        [S[2], S[1], S[0]],
+      ],
+      [1, 0, 0],
+    );
+    const ssRes = pts.reduce((acc, p) => acc + (p.y - (A * p.x * p.x + B * p.x + C)) ** 2, 0);
+    if (col) seA = Math.sqrt(Math.max((ssRes / (n - 3)) * col[0], 0)) / scale ** 2;
+  }
+  return { ok: true, value: { A, B, C, r2, n, seA: seA !== undefined && Number.isFinite(seA) ? seA : undefined } };
 }
 
 export const evalQuadratic = (f: Pick<QuadraticFit, 'A' | 'B' | 'C'>, t: number) => f.A * t * t + f.B * t + f.C;

@@ -103,16 +103,23 @@ export function Linearize({ data, lin, setLin, onNext }: Props) {
 
         {lin.fitShown && fit && (
           <div className={straight ? 'eq-box teal' : 'eq-box'}>
-            <div className="eq-title">{straight ? 'It looks straight' : 'Not straight yet'}</div>
-            <div className="eq big"><i>y</i> = {fmt(fit.m, 3)} <i>x</i> {fmtSigned(fit.b, 3)} &nbsp; (<i>R</i>² = {fmt(fit.r2, 4)})</div>
+            <div className="eq-title">{straight ? 'It looks straight' : 'Not very straight yet'}</div>
+            <div className="eq big"><i>y</i> = <i>m</i><i>x</i> + <i>b</i> = {fmt(fit.m, 3)} <i>x</i> {fmtSigned(fit.b, 3)} &nbsp; (<i>R</i>² = {fmt(fit.r2, 4)})</div>
+            <div className="slope-box">
+              <div className="eq-title">Record your slope</div>
+              <div className="eq big">
+                slope <i>m</i> = <span className="result">{fmt(fit.m, 3)}{fit.seM !== undefined && <> ± {fmt(fit.seM, 3)}</>}</span>{' '}
+                <span className="unit">{isPair ? 'm/s²' : 'units of vertical ÷ horizontal'}</span>
+              </div>
+            </div>
             {!straight && (
               <p className="meaning">
-                The points still curve away from the line. A good straightening gets <i>R</i>² very close to 1 and the points scatter evenly on both sides. Try a different combination.
+                The points still curve away from the line, so this slope is not trustworthy. A good straightening gets <i>R</i>² very close to 1 and the points scatter evenly on both sides. Try a different combination.
               </p>
             )}
             {straight && !isPair && (
               <p className="meaning">
-                The points are close to a line, but this combination does not turn into a simple kinematics equation. Can you work out what its slope would mean? If not, try another pair.
+                The points are close to a line, but this combination does not turn into a simple kinematics equation. Can you work out what its slope would mean?
               </p>
             )}
             {straight && isPair && !valid && (
@@ -120,32 +127,29 @@ export function Linearize({ data, lin, setLin, onNext }: Props) {
                 Careful: close to a line is not the same as <em>the right</em> line. Check that your equation really turns into <i>mx</i> + <i>b</i> for this drop. Was the object at rest at the first gate? What does that do to this graph? Try the hint.
               </p>
             )}
-            {straight && isPair && valid && (
-              <>
-                <p className="meaning">
-                  <strong>Now interpret the slope.</strong> Match your graph to <i>y</i> = <i>y</i>₁ + <i>v</i>₀<i>t</i> + ½<i>a</i><i>t</i>². Acceleration equals…
-                </p>
-                <div className="k-row" role="radiogroup" aria-label="Acceleration in terms of the slope">
-                  <span><i>a</i> =</span>
-                  {K_CHOICES.map((c) => (
-                    <label key={c.k} className={lin.k === c.k ? 'pill on' : 'pill'}>
-                      <input type="radio" name="k" checked={lin.k === c.k} onChange={() => setLin({ ...lin, k: c.k })} />
-                      {c.label}
-                    </label>
-                  ))}
-                </div>
-                {lin.k !== null && lin.k !== 2 && (
-                  <div className="callout warn">
-                    Check again. If the slope is ½<i>a</i>, then <i>a</i> is how many times the slope?
-                  </div>
-                )}
-                {lin.k === 2 && (
-                  <div className="callout good">
-                    Yes. <i>a</i> = 2 × slope = {fmtSigned(2 * fit.m, 2)} m/s², so <i>g</i> = <span className="result">{fmt(Math.abs(2 * fit.m), 2)} m/s²</span>.
-                    {lin.yT === 'dy_over_t' && <> The intercept is <i>v</i>₀ = {fmtSigned(fit.b, 2)} m/s, the velocity at the first gate.</>}
-                  </div>
-                )}
-              </>
+            <p className="meaning">
+              <strong>What does the slope mean?</strong> Match your graph to <i>y</i> = <i>y</i>₁ + <i>v</i>₀<i>t</i> + ½<i>a</i><i>t</i>². Acceleration equals…
+            </p>
+            <div className="k-row" role="radiogroup" aria-label="Acceleration in terms of the slope">
+              <span><i>a</i> =</span>
+              {K_CHOICES.map((c) => (
+                <label key={c.k} className={lin.k === c.k ? 'pill on' : 'pill'}>
+                  <input type="radio" name="k" checked={lin.k === c.k} onChange={() => setLin({ ...lin, k: c.k })} />
+                  {c.label}
+                </label>
+              ))}
+            </div>
+            {lin.k !== null && isPair && valid && lin.k !== 2 && (
+              <div className="callout warn">
+                Check again. If the slope is ½<i>a</i>, then <i>a</i> is how many times the slope?
+              </div>
+            )}
+            {lin.k !== null && (
+              <div className={isPair && valid && lin.k === 2 && straight ? 'callout good' : 'callout'}>
+                <i>a</i> = {fmt(lin.k, lin.k === 0.5 ? 1 : 0)} × slope = {fmtSigned(lin.k * fit.m, 2)} m/s², so <i>g</i> = <span className="result">{fmt(Math.abs(lin.k * fit.m), 2)}{fit.seM !== undefined && <> ± {fmt(Math.abs(lin.k) * fit.seM, 2)}</>} m/s²</span>.
+                {lin.yT === 'dy_over_t' && <> The intercept is <i>v</i>₀ = {fmtSigned(fit.b, 2)} m/s, the velocity at the first gate.</>}
+                {!(isPair && valid && straight) && <> This value is only trustworthy if the graph is straight and its slope really equals <i>a</i>/2 for your drop.</>}
+              </div>
             )}
           </div>
         )}

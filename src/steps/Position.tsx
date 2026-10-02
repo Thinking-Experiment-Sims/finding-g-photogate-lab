@@ -74,7 +74,7 @@ export function Position({ data, fit, showFit, onToggleFit, onNext }: Props) {
                   <strong><i>a</i> = 2<i>A</i></strong> (because <i>A</i> = ½<i>a</i>): <i>a</i> = {fmtSigned(quadraticAcceleration(f), 2)} m/s²
                 </li>
                 <li>
-                  <strong><i>g</i> = |<i>a</i>|</strong> = <span className="result">{fmt(Math.abs(quadraticAcceleration(f)), 2)} m/s²</span>
+                  <strong><i>g</i> = |<i>a</i>|</strong> = <span className="result">{fmt(Math.abs(quadraticAcceleration(f)), 2)}{f.seA !== undefined && <> ± {fmt(2 * f.seA, 2)}</>} m/s²</span>
                 </li>
               </ul>
               <p className="hint">
