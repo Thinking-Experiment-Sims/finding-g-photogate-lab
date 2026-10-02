@@ -1,0 +1,81 @@
+# Vernier Go Direct Photogate — integration findings
+
+Written by Claude (branch `claude/photogate-lab`) from the **source code of `@vernier/godirect` v1.8.3** and Vernier's
+published `gdx_photogate.html` example. **None of this has been tested with real hardware.** Treat every "should" below as
+an untested assumption.
+
+## The spec's six questions
+
+1. **Browser requirements.** Web Bluetooth (and WebHID for USB) only. Chrome and Edge on Mac, Windows, ChromeOS, Linux and
+   Android. **Not** Safari (any platform, including iPad) and **not** Firefox. The page must be served over HTTPS (GitHub
+   Pages is) and the device chooser must be opened from a user gesture (a click).
+2. **Web Bluetooth / WebHID.** Bluetooth: `navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'GDX-VPG' }],
+   optionalServices: ['d91714ef-28b9-4f91-ba16-f0d9a604f112'] })`, then `godirect.createDevice(bleDevice)`. This is exactly
+   what Vernier's photogate example does. The library's own `godirect.selectDevice()` filters on the broader `GDX` prefix
+   (any Go Direct sensor), so we call `requestDevice` ourselves to show only photogates.
+3. **Photogate channels.** In Vernier's example, **sensor channel 4 is "Gate 1"** and reads `1` when the beam is blocked,
+   `0` when clear. We read only that channel. Other channels (e.g. pulse time, gate 2, "time in gate") exist but are not
+   documented in the library; we did not use them.
+4. **Event/timing data format.** *This is the major risk.* The library delivers a stream of **sampled values** through
+   `sensor.on('value-changed')`. It does **not** expose a device timestamp: the `START_TIME`, `DROPPED` and `PERIOD` packets
+   are explicitly ignored (`Device._processMeasurements`). The minimum sampling period is 10 ms. One BLE packet can carry
+   several samples (`valueCount` loop) and the library fires `value-changed` for all of them back-to-back in the same
+   instant.
+5. **Multiple gates at once.** Web Bluetooth allows several simultaneous connections in Chrome; each gate needs its own
+   click on "Connect a photogate" (one chooser per device). We expect this to work but have not verified how many Chrome and
+   a given Chromebook/Mac Bluetooth radio will sustain.
+6. **Browser security limits.** User gesture required for every `requestDevice`; no silent reconnect after a page reload;
+   HTTPS only; Chrome shows its own chooser UI, which we cannot style.
+
+## Two beams per photogate
+
+Each Go Direct Photogate has two beams (~2 cm apart). `GoDirectPhotogateSource` finds them by sensor *name* (`Gate 1`, `Gate 2`)
+rather than a fixed channel number, falls back to channel 4 only if no such names exist, and prints every channel the device reports
+in the app's "Troubleshooting" panel. Whether the names really are "Gate 1"/"Gate 2" is an assumption to verify with hardware.
+The 2 cm spacing is a constant (`BEAM_SPACING`); because beams 2 cm apart are crossed only a few milliseconds apart, Bluetooth jitter
+(10–50 ms) makes the order and spacing of those two times unreliable — another reason to run the repeated-drop calibration.
+
+## Why timing may be unreliable (read before trusting a real-hardware *g*)
+
+`GoDirectPhotogateSource` stamps each "beam blocked" event with `performance.now()` **when the browser receives it**.
+That means every gate time carries Bluetooth delivery jitter. Free fall over ~1 m takes ~0.45 s, and the intervals between
+adjacent gates are 0.03–0.1 s. Typical BLE jitter is **10–50 ms** — the same size as the intervals we are trying to
+measure. Specific hazards:
+
+- **Jitter** is added independently to each gate, scrambling small intervals.
+- **Batched samples.** Several samples in one packet share one receive time, so two gates (or two transitions) can collapse
+  to the same instant.
+- **No shared clock** between separate Go Direct devices. Their internal clocks are unsynchronized, and the library does
+  not give us a way to align them.
+- **10 ms sampling** is itself ~2 % of a 0.45 s drop.
+
+Likely better approaches to investigate with hardware in hand:
+
+1. Use the device's own **sample index × period** as the timestamp instead of receive time (needs `keepValues` and care
+   about dropped packets), then still deal with the unsynchronized starts across devices.
+2. Find out whether the Go Direct Photogate exposes an **aperiodic, device-timestamped** channel (the way Graphical
+   Analysis gets its gate-timing data) and whether `@vernier/godirect` can read it. If not, ask Vernier.
+3. Use **one** photogate with a picket fence (many timestamps, one clock). This sidesteps the multi-device clock problem
+   entirely, at the cost of a different lab design.
+
+## Device-clock timing (added after the first draft)
+
+The library still exposes no timestamps, but it delivers every sample in order at a fixed period, and it restarts measurements (new
+timeline) whenever sensors are enabled (`measurements-started`). `src/sensors/deviceClock.ts` therefore treats sample *k* as happening
+at *k × period* on the gate's own clock and maps that onto the browser clock using the **minimum** of (arrival − k × period) over all
+samples, which cancels most Bluetooth jitter and lines two unsynchronized gates up on one timeline. The Troubleshooting panel lets you
+switch between this ("Gate's own clock", default) and plain receive-time, logs both for each event, and offers an experimental "fastest
+sampling rate" option.
+
+- Simulation (`deviceClock.test.ts`, under an *assumed* 8–60 ms latency model) shows the gate-to-gate interval error falling by more
+  than half. **This is a model, not a measurement** — verify with real drops.
+- Resolution is one sampling period (default is whatever the sensors report; the library clamps requests to ≥ 10 ms unless we lower
+  `minMeasurementPeriod`, which "fastest sampling" does).
+- Assumes no dropped packets (the library ignores DROPPED packets) and negligible clock-rate drift.
+- Cross-gate alignment is only as good as the difference in best-case Bluetooth latency between the two gates (a few ms).
+
+## Recommendation
+
+Ship the simulated workflow first. Before using Vernier mode with students, run a calibration test with real gates: drop the
+same object 10 times and check that the spread of the measured *g* is acceptable. The UI labels Vernier mode
+"experimental — times approximate" for this reason.
