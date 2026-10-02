@@ -1,6 +1,6 @@
 import { Stand } from '../components/Stand';
 import { fmt } from '../format';
-import { readiness, rowStatuses, type GateRow } from '../experiments/fallingMotion/model';
+import { BEAM_SPACING, parsePosition, readiness, rowStatuses, type GateRow } from '../experiments/fallingMotion/model';
 import type { SimulatedPhotogateSource } from '../sensors/SimulatedPhotogateSource';
 import type { GateInfo, PhotogateSource } from '../sensors/types';
 import { webBluetoothSupported } from '../sensors/GoDirectPhotogateSource';
@@ -14,6 +14,8 @@ interface Props {
   beams: Record<string, GateInfo['beam']>;
   armed: boolean;
   error: string | null;
+  creases: Record<string, string>;
+  onCrease: (group: string, text: string) => void;
   onPosition: (gateId: string, text: string) => void;
   onAddGate: () => void;
   onRemoveGate: (gateId: string) => void;
@@ -38,6 +40,9 @@ export function Collect(p: Props) {
   const status = rowStatuses(p.rows);
   const ready = readiness(p.rows);
   const fired = p.rows.filter((r) => r.rawTime !== null).length;
+  const groupIds = [...new Set(p.rows.filter((r) => r.groupId).map((r) => r.groupId as string))];
+  const grouped = groupIds.length > 0;
+  const missingHeights = grouped ? groupIds.filter((g) => parsePosition(p.creases[g] ?? '') === null).length : ready.missingPositions;
   const sim = p.mode === 'simulated' ? (p.source as SimulatedPhotogateSource) : null;
 
   return (
@@ -65,15 +70,21 @@ export function Collect(p: Props) {
           {p.mode === 'vernier' && (
             <div className="callout">
               {webBluetoothSupported() ? (
-                <p>
-                  Turn on each photogate, then press <strong>Connect a photogate</strong> once per gate. <strong>Block a gate with your hand</strong> — its row
-                  below lights up, so you know which height belongs to which row.
-                </p>
+                <>
+                  <p>
+                    Turn on each photogate, then press <strong>Connect a photogate</strong> once per gate. <strong>Block a gate with your hand</strong> — its row
+                    below lights up, so you know which height belongs to which row.
+                  </p>
+                </>
               ) : (
                 <p>
                   <strong>To connect Vernier sensors, open this page in Google Chrome</strong> (or Microsoft Edge). You can still use the simulated drop in any browser.
                 </p>
               )}
+              <p>
+                <strong>What height do I measure?</strong> Each photogate has two beams about 2 cm apart. Measure the height of the <strong>crease between the two beams</strong> (the
+                center line of the gate) up from the table, and enter that one number for the gate.
+              </p>
             </div>
           )}
 
@@ -90,6 +101,72 @@ export function Collect(p: Props) {
             </div>
           )}
 
+          {grouped ? (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Photogate</th>
+                    <th scope="col">
+                      Crease height <i>y</i> (m)
+                      <span className="th-sub">between the two beams, up from the table</span>
+                    </th>
+                    <th scope="col">
+                      First beam <i>t</i> (s)
+                      <span className="th-sub">upper, at crease + {fmt(BEAM_SPACING * 50, 0)} cm</span>
+                    </th>
+                    <th scope="col">
+                      Second beam <i>t</i> (s)
+                      <span className="th-sub">lower, at crease − {fmt(BEAM_SPACING * 50, 0)} cm</span>
+                    </th>
+                    <th scope="col" className="sr-only">Remove</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupIds.map((g) => {
+                    const members = p.rows.filter((r) => r.groupId === g).sort((a, b) => (a.rawTime ?? Infinity) - (b.rawTime ?? Infinity));
+                    const live = members.some((m) => p.beams[m.gateId] === 'blocked');
+                    const problem = !members.every((m) => status[p.rows.indexOf(m)].problems.every((x) => x.startsWith('No time')));
+                    const text = p.creases[g] ?? '';
+                    const msg = members.map((m) => status[p.rows.indexOf(m)].problems.find((x) => !x.startsWith('No time'))).find(Boolean);
+                    return (
+                      <tr key={g} className={live ? 'live' : undefined}>
+                        <th scope="row">
+                          <span className={live ? 'beam-dot on' : members.every((m) => m.rawTime !== null) ? 'beam-dot done' : 'beam-dot'} aria-hidden="true" />
+                          {members[0].groupLabel ?? 'Photogate'}
+                          {live && <span className="sr-only"> (beam blocked)</span>}
+                        </th>
+                        <td>
+                          <input
+                            className={problem && text.trim() !== '' ? 'num-input invalid' : 'num-input'}
+                            inputMode="decimal"
+                            aria-label={`${members[0].groupLabel ?? 'Photogate'} crease height in meters`}
+                            placeholder="e.g. 0.640"
+                            value={text}
+                            onChange={(e) => p.onCrease(g, e.target.value)}
+                          />
+                          {msg && text.trim() !== '' && <div className="field-msg">{msg}</div>}
+                        </td>
+                        {[0, 1].map((i) => {
+                          const t = members[i] ? status[p.rows.indexOf(members[i])].time : null;
+                          return (
+                            <td key={i} className={t === null ? 'time pending' : 'time'}>
+                              {t === null ? 'waiting…' : fmt(t, 3)}
+                            </td>
+                          );
+                        })}
+                        <td>
+                          <button className="btn btn-icon" aria-label={`Remove ${members[0].groupLabel ?? 'photogate'}`} onClick={() => p.onRemoveGate(g)}>
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
@@ -154,12 +231,10 @@ export function Collect(p: Props) {
             </table>
           </div>
 
+          )}
+
           <p className="status-line" aria-live="polite">
-            {p.rows.length === 0
-              ? ''
-              : ready.missingPositions > 0
-                ? `Enter ${ready.missingPositions} more height${ready.missingPositions > 1 ? 's' : ''}. `
-                : ''}
+            {missingHeights > 0 ? `Enter ${missingHeights} more ${grouped ? 'crease height' : 'height'}${missingHeights > 1 ? 's' : ''}. ` : ''}
             {p.mode !== 'example' && p.rows.length > 0 && (p.armed ? `Waiting for the drop… ${fired} of ${p.rows.length} gates triggered.` : fired === p.rows.length ? `Drop recorded: all ${fired} gates triggered.` : ready.missingTimes > 0 ? `${ready.missingTimes} gate${ready.missingTimes > 1 ? 's have' : ' has'} no time yet.` : '')}
           </p>
 
@@ -180,9 +255,9 @@ export function Collect(p: Props) {
                 <button className="btn" onClick={p.onAddGate}>
                   {p.mode === 'vernier' ? 'Connect a photogate' : 'Add gate'}
                 </button>
-                <button className="btn" disabled={p.rows.length < 2} onClick={p.onSort} title="Order rows from the highest gate to the lowest">
+                {!grouped && <button className="btn" disabled={p.rows.length < 2} onClick={p.onSort} title="Order rows from the highest gate to the lowest">
                   Sort top → bottom
-                </button>
+                </button>}
               </>
             )}
             <button className="btn" onClick={p.onReset}>

@@ -9,6 +9,9 @@ export interface GateInfo {
   label: string;
   /** Live state of the beam. 'blocked' means something is in the beam right now. */
   beam: 'clear' | 'blocked' | 'unknown';
+  /** Beams on the same physical photogate share a group (its device id). Their heights are tied together. */
+  group?: string;
+  groupLabel?: string;
 }
 
 export type SourceEvent =

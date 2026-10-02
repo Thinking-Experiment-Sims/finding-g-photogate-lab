@@ -27,6 +27,14 @@ an untested assumption.
 6. **Browser security limits.** User gesture required for every `requestDevice`; no silent reconnect after a page reload;
    HTTPS only; Chrome shows its own chooser UI, which we cannot style.
 
+## Two beams per photogate
+
+Each Go Direct Photogate has two beams (~2 cm apart). `GoDirectPhotogateSource` finds them by sensor *name* (`Gate 1`, `Gate 2`)
+rather than a fixed channel number, falls back to channel 4 only if no such names exist, and prints every channel the device reports
+in the app's "Troubleshooting" panel. Whether the names really are "Gate 1"/"Gate 2" is an assumption to verify with hardware.
+The 2 cm spacing is a constant (`BEAM_SPACING`); because beams 2 cm apart are crossed only a few milliseconds apart, Bluetooth jitter
+(10–50 ms) makes the order and spacing of those two times unreliable — another reason to run the repeated-drop calibration.
+
 ## Why timing may be unreliable (read before trusting a real-hardware *g*)
 
 `GoDirectPhotogateSource` stamps each "beam blocked" event with `performance.now()` **when the browser receives it**.

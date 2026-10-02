@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exampleRows, measurements, parsePosition, readiness, relativeTimes, rowStatuses, toCsv, type GateRow } from './model';
+import { deriveRows, exampleRows, measurements, parsePosition, readiness, relativeTimes, rowStatuses, toCsv, type GateRow } from './model';
 import { fitPosition, quadraticAcceleration } from '../../physics/kinematics';
 
 const row = (id: string, pos: string, t: number | null): GateRow => ({ gateId: id, label: id, positionText: pos, rawTime: t });
@@ -60,5 +60,27 @@ describe('example experiment', () => {
     const fit = fitPosition(m.map((d) => ({ t: d.time, y: d.position })));
     expect(fit.ok).toBe(true);
     if (fit.ok) expect(Math.abs(quadraticAcceleration(fit.value))).toBeGreaterThan(8.5), expect(quadraticAcceleration(fit.value)).toBeLessThan(-8.5);
+  });
+});
+
+describe('deriveRows (two-beam photogates)', () => {
+  const beam = (id: string, group: string, t: number | null): GateRow => ({ gateId: id, label: id, positionText: '', rawTime: t, groupId: group });
+  it('puts the first beam to fire 1 cm above the crease and the second 1 cm below', () => {
+    const rows = deriveRows([beam('a1', 'A', 0.3002), beam('a2', 'A', 0.2995)], { A: '0.640' });
+    expect(rows.find((r) => r.gateId === 'a2')!.positionText).toBe('0.650'); // fired first → upper
+    expect(rows.find((r) => r.gateId === 'a1')!.positionText).toBe('0.630');
+  });
+  it('keeps ungrouped rows, reports typed text while invalid, and leaves heights blank when empty', () => {
+    expect(deriveRows([row('x', '0.5', 1)], {})[0].positionText).toBe('0.5');
+    expect(deriveRows([beam('a1', 'A', null), beam('a2', 'A', null)], { A: 'abc' }).map((r) => r.positionText)).toEqual(['abc', 'abc']);
+    expect(deriveRows([beam('a1', 'A', null)], {})[0].positionText).toBe('');
+  });
+  it('two photogates give four usable measurements', () => {
+    const rows = deriveRows(
+      [beam('a1', 'A', 0.20), beam('a2', 'A', 0.21), beam('b1', 'B', 0.35), beam('b2', 'B', 0.36)],
+      { A: '0.900', B: '0.500' },
+    );
+    expect(measurements(rows)).toHaveLength(4);
+    expect(readiness(rows).complete).toBe(true);
   });
 });

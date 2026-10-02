@@ -57,13 +57,15 @@ export class GoDirectPhotogateSource implements PhotogateSource {
   private clockZero = 0;
   private diag: string[] = [];
   private latest = new Map<string, number>();
+  private deviceLabels = new Map<string, string>();
 
   private emit(e: SourceEvent) {
     this.listeners.forEach((l) => l(e));
   }
 
+  /** One entry per beam. The two beams of a photogate share a `group` so the UI can ask for one crease height per gate. */
   gates(): GateInfo[] {
-    return this.beams.map((b) => ({ ...b.info }));
+    return this.beams.map((b) => ({ ...b.info, group: b.deviceId, groupLabel: this.deviceLabels.get(b.deviceId) ?? 'Photogate' }));
   }
 
   diagnostics(): string[] {
@@ -105,9 +107,10 @@ export class GoDirectPhotogateSource implements PhotogateSource {
       throw new Error('That device does not look like a Go Direct Photogate (no gate channels found).');
     }
 
+    this.deviceLabels.set(ble.id, devName);
     const added: Beam[] = gateSensors.map((sensor) => {
       const m = GATE_NAME.exec(sensor.name);
-      const label = gateSensors.length > 1 ? `${devName} · Gate ${m ? m[1] : sensor.number}` : devName;
+      const label = `${devName} · beam ${m ? m[1] : sensor.number}`;
       return { info: { id: `${ble.id}#${sensor.number}`, label, beam: 'unknown' as const }, deviceId: ble.id, device, sensor, armedClear: false };
     });
     for (const beam of added) {
@@ -116,6 +119,7 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     }
     device.on('device-closed', () => {
       this.beams = this.beams.filter((b) => b.deviceId !== ble.id);
+      this.deviceLabels.delete(ble.id);
       this.emit({ type: 'gates', gates: this.gates() });
     });
     this.beams.push(...added);
@@ -142,13 +146,15 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     }
   }
 
-  /** Remove one beam. The physical device is disconnected only when none of its beams are left. */
+  /** Remove a whole photogate (both beams) and disconnect it. `id` may be a beam id or the device id. */
   removeGate(id: string) {
-    const beam = this.beams.find((b) => b.info.id === id);
-    if (!beam) return;
-    this.beams = this.beams.filter((b) => b !== beam);
-    beam.sensor.setEnabled(false);
-    if (!this.beams.some((b) => b.deviceId === beam.deviceId)) beam.device.close();
+    const deviceId = this.beams.find((b) => b.info.id === id || b.deviceId === id)?.deviceId;
+    const mine = this.beams.filter((b) => b.deviceId === deviceId);
+    id = deviceId ?? id;
+    if (mine.length === 0) return;
+    this.beams = this.beams.filter((b) => b.deviceId !== id);
+    this.deviceLabels.delete(id);
+    mine[0].device.close();
     this.emit({ type: 'gates', gates: this.gates() });
   }
 

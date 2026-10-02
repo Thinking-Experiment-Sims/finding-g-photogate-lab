@@ -15,32 +15,12 @@ export interface Tangent {
 }
 
 /**
- * Tangent to the fitted position curve at time t. The slope is measured as a very small
+ * Tangent to the fitted position curve at time t. Tangents are only ever taken on the fitted curve, never on data points. The slope is measured as a very small
  * symmetric secant (x(t+h) − x(t−h)) / 2h, i.e. literally the slope of a line, not a formula lookup.
  */
 export function tangentOnFit(fit: QuadraticFit, t: number, h = 1e-4): Tangent {
   const slope = (evalQuadratic(fit, t + h) - evalQuadratic(fit, t - h)) / (2 * h);
   return { t, y: evalQuadratic(fit, t), slope };
-}
-
-/**
- * Data-only tangent estimate: the slope between two neighboring gates equals the instantaneous
- * velocity at the midpoint time for constant acceleration. Independent of the quadratic fit.
- * Points must have distinct times; they are sorted by time first.
- */
-export function neighborTangents(points: Point[]): Tangent[] {
-  const sorted = points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)).sort((a, b) => a.x - b.x);
-  const out: Tangent[] = [];
-  for (let i = 0; i + 1 < sorted.length; i++) {
-    const dt = sorted[i + 1].x - sorted[i].x;
-    if (dt <= 1e-9) continue;
-    out.push({
-      t: (sorted[i].x + sorted[i + 1].x) / 2,
-      y: (sorted[i].y + sorted[i + 1].y) / 2,
-      slope: (sorted[i + 1].y - sorted[i].y) / dt,
-    });
-  }
-  return out;
 }
 
 /** Linear fit of velocity points: slope = acceleration. */

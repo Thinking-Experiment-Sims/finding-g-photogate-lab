@@ -68,7 +68,7 @@ export function Compare({ estimates, onExport }: { estimates: Estimate[]; onExpo
           <strong>Discuss.</strong>
           <ul>
             <li>Which values agree most closely? Why might that happen?</li>
-            <li>Methods 1 and 2 both use the quadratic fit if the tangents are drawn on the fitted curve. Are they independent measurements?</li>
+            <li>Methods 1 and 2 both come from the same quadratic fit. Are they independent measurements? Which method depends most directly on your raw data?</li>
             <li>Which source of error matters most: your height measurements, or the gate times?</li>
           </ul>
         </div>

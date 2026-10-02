@@ -4,7 +4,6 @@ import {
   fitPosition,
   linearizationValid,
   linearizedFit,
-  neighborTangents,
   percentDifference,
   quadraticAcceleration,
   quadraticVelocity,
@@ -109,20 +108,11 @@ describe('tangents', () => {
     expect(tg.slope).toBeCloseTo(10 * 0.25 + 2, 6);
     expect(tg.y).toBeCloseTo(evalQuadratic(fit, 0.25), 9);
   });
-  it('neighbor secant slope equals instantaneous velocity at the midpoint time (constant a)', () => {
-    const tangents = neighborTangents(known);
-    expect(tangents).toHaveLength(known.length - 1);
-    for (const tg of tangents) expect(tg.slope).toBeCloseTo(10 * tg.t + 2, 9);
-  });
-  it('neighbor tangents skip duplicate times and unsorted input', () => {
-    const t = neighborTangents([{ x: 0.2, y: 2 }, { x: 0, y: 0 }, { x: 0.2, y: 2 }, { x: 0.1, y: 1 }]);
-    expect(t.every((p) => Number.isFinite(p.slope))).toBe(true);
-    expect(t).toHaveLength(2);
-  });
   it('velocity-vs-time line fit slope is the acceleration', () => {
-    const f = ok(velocityFit(neighborTangents(known).map((p) => ({ t: p.t, v: p.slope }))));
-    expect(f.m).toBeCloseTo(10, 9);
-    expect(f.b).toBeCloseTo(2, 9);
+    const fit = ok(quadraticFit(known));
+    const f = ok(velocityFit([0.03, 0.11, 0.17, 0.26, 0.39].map((t) => ({ t, v: tangentOnFit(fit, t).slope }))));
+    expect(f.m).toBeCloseTo(10, 5);
+    expect(f.b).toBeCloseTo(2, 5);
   });
 });
 
@@ -177,13 +167,9 @@ describe('all three methods on falling heights (up-positive, a ≈ −g)', () =>
     expect(quadraticAcceleration(f)).toBeCloseTo(-g, 6);
     expect(f.B).toBeLessThan(0); // moving down at gate 1
   });
-  it('tangent velocities (neighbor secants) fit a line with slope −g', () => {
-    const v = neighborTangents(data.map((d) => ({ x: d.t, y: d.y }))).map((p) => ({ t: p.t, v: p.slope }));
-    expect(ok(velocityFit(v)).m).toBeCloseTo(-g, 6);
-  });
-  it('tangents on the fit also give slope −g (identical to 2A by construction)', () => {
+  it('tangents on the fit at arbitrary times (not at data points) give slope −g, equal to 2A by construction', () => {
     const f = ok(fitPosition(data));
-    const v = data.map((d) => ({ t: d.t, v: tangentOnFit(f, d.t).slope }));
+    const v = [0.02, 0.07, 0.13, 0.2, 0.25].map((t) => ({ t, v: tangentOnFit(f, t).slope }));
     expect(ok(velocityFit(v)).m).toBeCloseTo(quadraticAcceleration(f), 5);
   });
   it('linearization Δy/Δt vs t has slope a/2 = −g/2', () => {

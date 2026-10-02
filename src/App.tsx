@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { exampleRows, measurements, parsePosition, readiness, toCsv, type GateRow } from './experiments/fallingMotion/model';
+import { deriveRows, exampleRows, measurements, parsePosition, readiness, toCsv, type GateRow } from './experiments/fallingMotion/model';
 import { fitPosition, linearizationValid, linearizedFit, quadraticAcceleration, velocityFit } from './physics/kinematics';
 import { GoDirectPhotogateSource, webBluetoothSupported } from './sensors/GoDirectPhotogateSource';
 import { SimulatedPhotogateSource } from './sensors/SimulatedPhotogateSource';
@@ -25,13 +25,14 @@ const FRESH_LIN: LinState = { xT: 't2', yT: 'y', fitShown: false, k: null, hint:
 export default function App() {
   const [mode, setMode] = useState<Mode | null>(null);
   const [rows, setRows] = useState<GateRow[]>([]);
+  /** One crease height (text) per two-beam photogate, keyed by device id. */
+  const [creases, setCreases] = useState<Record<string, string>>({});
   const [beams, setBeams] = useState<Record<string, GateInfo['beam']>>({});
   const [armed, setArmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>('collect');
   const [showFit, setShowFit] = useState(false);
   const [records, setRecords] = useState<VelRecord[]>([]);
-  const [neighborMode, setNeighborMode] = useState(false);
   const [lin, setLin] = useState<LinState>(FRESH_LIN);
   const sourceRef = useRef<PhotogateSource | null>(null);
   const [, bump] = useState(0);
@@ -44,7 +45,7 @@ export default function App() {
 
   const syncRows = useCallback((gates: GateInfo[]) => {
     setRows((prev) =>
-      gates.map((g) => prev.find((r) => r.gateId === g.id) ?? { gateId: g.id, label: g.label, positionText: '', rawTime: null }),
+      gates.map((g) => prev.find((r) => r.gateId === g.id) ?? { gateId: g.id, label: g.label, positionText: '', rawTime: null, groupId: g.group, groupLabel: g.groupLabel }),
     );
   }, []);
 
@@ -71,6 +72,7 @@ export default function App() {
     setArmed(false);
     setBeams({});
     resetAnalysis();
+    setCreases({});
     setStep('collect');
     if (m === 'example') {
       setRows(exampleRows());
@@ -92,8 +94,10 @@ export default function App() {
   }, [rows, armed]);
 
   const src = sourceRef.current;
-  const data: Datum[] = useMemo(() => measurements(rows).map((m) => ({ t: m.time, y: m.position })), [rows]);
-  const ready = readiness(rows);
+  // Rows with heights filled in from the crease heights (for two-beam photogates).
+  const eff = useMemo(() => deriveRows(rows, creases), [rows, creases]);
+  const data: Datum[] = useMemo(() => measurements(eff).map((m) => ({ t: m.time, y: m.position })), [eff]);
+  const ready = readiness(eff);
   const canAnalyze = ready.usable >= 3;
   const fit = useMemo(() => fitPosition(data), [data]);
   const dataLabel = mode === 'vernier' ? 'Vernier Go Direct Photogates (experimental)' : 'Simulated data';
@@ -107,12 +111,12 @@ export default function App() {
       {
         key: 'vel',
         method: '2 · Velocity graph',
-        how: `g = |slope| of v vs. t, using ${neighborMode ? 'slopes between neighboring gates' : 'tangent lines on the fit'}`,
+        how: 'g = |slope| of v vs. t, from tangent lines on the fitted curve',
         g: vf.ok && records.length >= 2 ? Math.abs(vf.value.m) : null,
       },
       { key: 'lin', method: '3 · Linearization', how: 'g = |a|, with a from the slope of your straightened graph', g: linOk && lf.ok && lin.k !== null ? Math.abs(lin.k * lf.value.m) : null },
     ];
-  }, [fit, records, neighborMode, data, lin]);
+  }, [fit, records, data, lin]);
 
   const addGate = async () => {
     setError(null);
@@ -135,7 +139,7 @@ export default function App() {
   };
 
   const exportCsv = () => {
-    const blob = new Blob([toCsv(rows, dataLabel)], { type: 'text/csv' });
+    const blob = new Blob([toCsv(eff, dataLabel)], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = mode === 'vernier' ? 'falling-motion-photogates.csv' : 'falling-motion-SIMULATED.csv';
@@ -200,7 +204,9 @@ export default function App() {
             <Collect
               mode={mode}
               source={src}
-              rows={rows}
+              rows={eff}
+              creases={creases}
+              onCrease={(group, text) => { setCreases((c) => ({ ...c, [group]: text })); resetAnalysis(); }}
               beams={beams}
               armed={armed}
               error={error}
@@ -219,7 +225,7 @@ export default function App() {
           )}
           {step === 'position' && <Position data={data} fit={fit} showFit={showFit} onToggleFit={() => setShowFit((s) => !s)} onNext={() => goto('velocity')} />}
           {step === 'velocity' && fit.ok && (
-            <Velocity data={data} fit={fit.value} records={records} setRecords={setRecords} neighborMode={neighborMode} setNeighborMode={setNeighborMode} onNext={() => goto('linearize')} />
+            <Velocity data={data} fit={fit.value} records={records} setRecords={setRecords} onNext={() => goto('linearize')} />
           )}
           {step === 'velocity' && !fit.ok && <div className="card"><div className="callout warn">{fit.reason}</div></div>}
           {step === 'linearize' && <Linearize data={data} lin={lin} setLin={setLin} onNext={() => goto('compare')} />}

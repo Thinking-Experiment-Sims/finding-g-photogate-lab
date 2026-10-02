@@ -8,7 +8,13 @@ export interface GateRow {
   positionText: string;
   /** Time on the source's clock, seconds. null until the gate fires. */
   rawTime: number | null;
+  /** Set for the beams of a two-beam photogate: the device id. Heights for these rows are derived, not typed. */
+  groupId?: string;
+  groupLabel?: string;
 }
+
+/** The two beams of a Go Direct Photogate are about 2 cm apart. */
+export const BEAM_SPACING = 0.02; // m
 
 export interface PhotogateMeasurement {
   gateId: string;
@@ -105,4 +111,25 @@ export function exampleRows(rand: () => number = Math.random): GateRow[] {
     positionText: p.toFixed(3),
     rawTime: simulatedArrivalTime(p, rand),
   }));
+}
+
+/**
+ * Rows for two-beam photogates get their heights from ONE crease height per photogate (typed by the student, halfway between
+ * the beams): the beam that fires first is the upper one (the object is falling), at crease + 1 cm; the other is at crease − 1 cm.
+ * Ungrouped rows pass through unchanged. Before both beams have fired the order is unknown, so beams are assigned in row order.
+ */
+export function deriveRows(rows: GateRow[], creases: Record<string, string>): GateRow[] {
+  const out = rows.map((r) => ({ ...r }));
+  const groups = new Set(rows.filter((r) => r.groupId).map((r) => r.groupId as string));
+  for (const g of groups) {
+    const members = out.filter((r) => r.groupId === g);
+    const crease = parsePosition(creases[g] ?? '');
+    const ordered = [...members].sort((a, b) => (a.rawTime ?? Infinity) - (b.rawTime ?? Infinity));
+    ordered.forEach((r, i) => {
+      if (crease === null) r.positionText = creases[g] ?? '';
+      else if (members.length === 1) r.positionText = crease.toFixed(3);
+      else r.positionText = (crease + (i === 0 ? BEAM_SPACING / 2 : -BEAM_SPACING / 2)).toFixed(3);
+    });
+  }
+  return out;
 }
