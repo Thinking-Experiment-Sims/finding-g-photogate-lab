@@ -94,6 +94,9 @@ export function Collect(p: Props) {
                 </p>
               )}
               <p>
+                <strong>Tip for accuracy:</strong> before your first drop, wave your hand through each photogate about 5 times. The gates have separate clocks, and every event helps the app line them up.
+              </p>
+              <p>
                 <strong>What height do I measure?</strong> Each photogate has two beams about 2 cm apart. Measure the height of the <strong>crease between the two beams</strong> (the
                 center line of the gate) up from the table, and enter that one number for the gate.
               </p>
@@ -113,20 +116,12 @@ export function Collect(p: Props) {
                           type="radio"
                           name="timingMode"
                           checked={p.source!.options!.timingMode === m}
-                          onChange={() => { p.source!.options!.timingMode = m; p.source!.applyOptions?.(); p.onRefresh(); }}
+                          onChange={() => { p.source!.options!.timingMode = m; p.onRefresh(); }}
                         />
-                        {m === 'device' ? 'Gate’s own clock (recommended)' : 'When the browser receives it'}
+                        {m === 'device' ? 'Gate’s own timestamps (recommended)' : 'When the browser receives it (less accurate)'}
                       </label>
                     ))}
                   </fieldset>
-                  <label className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={p.source.options.fastSampling}
-                      onChange={(e) => { p.source!.options!.fastSampling = e.target.checked; p.source!.applyOptions?.(); p.onRefresh(); }}
-                    />
-                    Ask the gates for their fastest sampling rate (experimental; if times stop appearing, turn this off)
-                  </label>
                 </div>
               )}
               <pre className="diag">{p.source.diagnostics().join('\n') || 'Nothing connected yet.'}</pre>

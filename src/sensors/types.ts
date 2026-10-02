@@ -16,17 +16,20 @@ export interface GateInfo {
 
 export type SourceEvent =
   | { type: 'gates'; gates: GateInfo[] }
-  /** The beam on a gate was newly blocked. `time` is seconds on this source's own clock. */
-  | { type: 'blocked'; gateId: string; time: number }
+  /**
+   * The beam on a gate was newly blocked. `time` is seconds on this source's own clock, from the gate's own timestamp when the
+   * timing method is 'device'. `receiveTime` is always the browser's receive time of the same event (for comparison).
+   */
+  | { type: 'blocked'; gateId: string; time: number; receiveTime?: number }
   | { type: 'beam'; gateId: string; beam: GateInfo['beam'] }
+  /** A firmware-computed value from the photogate itself (timed in the gate at 1 µs), e.g. Object Velocity. */
+  | { type: 'object'; kind: 'velocity' | 'acceleration'; value: number; time: number; receiveTime?: number }
   | { type: 'error'; message: string };
 
 /** Hardware timing options (Vernier source only). */
 export interface SourceOptions {
-  /** 'device': use each photogate's own sample clock (sample number × period). 'receive': stamp events when the browser receives them. */
+  /** 'device': use the gates' own microsecond timestamps (read from the Bluetooth packets). 'receive': stamp events when the browser receives them. */
   timingMode: 'device' | 'receive';
-  /** Ask the gates for the fastest sampling period they report (instead of their default). Experimental. */
-  fastSampling: boolean;
 }
 
 export interface PhotogateSource {
@@ -44,7 +47,6 @@ export interface PhotogateSource {
   dispose(): void;
   /** Plain-text lines for troubleshooting (sensor channels, latest raw values). Optional. */
   diagnostics?(): string[];
-  /** Timing options; present only on sources where they apply. Call `applyOptions()` after changing them. */
+  /** Timing options; present only on sources where they apply. */
   options?: SourceOptions;
-  applyOptions?(): void;
 }
