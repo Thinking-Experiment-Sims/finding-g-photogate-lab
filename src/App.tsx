@@ -9,6 +9,7 @@ import { Compare, type Estimate } from './steps/Compare';
 import { Linearize } from './steps/Linearize';
 import { Position } from './steps/Position';
 import { Velocity } from './steps/Velocity';
+import { FenceCheck } from './steps/FenceCheck';
 import { STRAIGHT_R2, type Datum, type LinState, type VelRecord } from './steps/types';
 
 type Step = 'collect' | 'position' | 'velocity' | 'linearize' | 'compare';
@@ -24,6 +25,7 @@ const FRESH_LIN: LinState = { xT: 't2', yT: 'y', fitShown: false, k: null, hint:
 
 export default function App() {
   const [mode, setMode] = useState<Mode | null>(null);
+  const [checking, setChecking] = useState(false);
   const [rows, setRows] = useState<GateRow[]>([]);
   /** One crease height (text) per two-beam photogate, keyed by device id. */
   const [creases, setCreases] = useState<Record<string, string>>({});
@@ -224,7 +226,9 @@ export default function App() {
         <p className="subtitle">Measure the acceleration of gravity three ways: from a curve fit, from tangent-line velocities, and from a straightened graph.</p>
       </header>
 
-      {mode === null ? (
+      {checking ? (
+        <FenceCheck onBack={() => setChecking(false)} />
+      ) : mode === null ? (
         <section className="setup" aria-label="Choose a data source">
           <div className="source-cards">
             <button className="source-card" onClick={() => chooseMode('simulated')}>
@@ -242,6 +246,9 @@ export default function App() {
           </div>
           <p className="demo-link">
             Teacher demo: <button className="btn btn-quiet" onClick={() => { chooseMode('example'); }}>Load example experiment</button> — realistic simulated data, no hardware needed.
+          </p>
+          <p className="demo-link">
+            Have a picket fence? <button className="btn btn-quiet" onClick={() => setChecking(true)}>Photogate timing check (picket fence)</button> — measures how accurate the Bluetooth timing is.
           </p>
         </section>
       ) : (

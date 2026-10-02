@@ -19,6 +19,8 @@ export type SourceEvent =
   /** The beam on a gate was newly blocked. `time` is seconds on this source's own clock. */
   | { type: 'blocked'; gateId: string; time: number }
   | { type: 'beam'; gateId: string; beam: GateInfo['beam'] }
+  /** A firmware-computed value from the photogate itself (timed in the gate at 1 µs), e.g. Object Velocity. */
+  | { type: 'object'; kind: 'velocity' | 'acceleration'; value: number; time: number }
   | { type: 'error'; message: string };
 
 /** Hardware timing options (Vernier source only). */

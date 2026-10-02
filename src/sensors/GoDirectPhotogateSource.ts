@@ -13,6 +13,9 @@ const GATE_NAME_PREFIX = 'GDX-VPG';
 const GATE_1_CHANNEL = 4;
 /** A Go Direct Photogate has two beams. We find them by sensor name ("Gate 1", "Gate 2") so we do not hard-code channel numbers. */
 const GATE_NAME = /^gate\s*([12])\b.*gate\s*state/i;
+/** Firmware-computed channels (timed inside the gate at 1 µs). "Remote Gate – …" variants are excluded. */
+export const isObjectVelocity = (name: string) => /^object\s*velocity$/i.test(name.trim());
+export const isObjectAcceleration = (name: string) => /^object\s*acceleration/i.test(name.trim());
 /** Vernier's documented channel names are "Gate 1 – Gate State" and "Gate 2 – Gate State". Excludes remote/laser gates and timing channels. */
 export const isBeamChannel = (name: string) => GATE_NAME.test(name.trim()) && !/remote|laser/i.test(name);
 
@@ -69,6 +72,8 @@ export class GoDirectPhotogateSource implements PhotogateSource {
   private eventLog: string[] = [];
   private packetLog: string[] = [];
   options: SourceOptions = { timingMode: 'device', fastSampling: false };
+  /** Also enable the gate's firmware Object Velocity / Object Acceleration channels (used by the picket-fence check). */
+  objectChannels = false;
   private latest = new Map<string, number>();
   private deviceLabels = new Map<string, string>();
 
@@ -82,12 +87,13 @@ export class GoDirectPhotogateSource implements PhotogateSource {
   }
 
   diagnostics(): string[] {
+    const enabledNow = [...new Set(this.beams.map((b) => b.device))].map((d) => `${d.name}: enabled now → ${d.sensors.filter((x) => (x as unknown as { enabled?: boolean }).enabled).map((x) => `${x.number}="${x.name}"`).join(', ') || '(none)'}`);
     const live = this.beams.map((b) => `${b.info.label}: channel ${b.sensor.number} "${b.sensor.name}", latest raw value ${this.latest.get(b.info.id) ?? 'none yet'}`);
     const log = this.eventLog.length
       ? ['', 'Recent beam events (seconds after arming). "browser" = when Bluetooth delivered it; "device" = the gate\'s own clock:', ...this.eventLog.slice(-12)]
       : [];
     const packets = this.packetLog.length ? ['', 'First raw measurement packets (hex; for diagnosing the event format):', ...this.packetLog] : [];
-    return [...this.diag, ...live, ...log, ...packets];
+    return [...this.diag, ...enabledNow, ...live, ...log, ...packets];
   }
 
   /** Apply the sampling option to every connected device. */
@@ -168,6 +174,7 @@ export class GoDirectPhotogateSource implements PhotogateSource {
       this.emit({ type: 'gates', gates: this.gates() });
     });
     this.beams.push(...added);
+    if (this.objectChannels) this.enableObjectChannels(device, devName);
     this.emit({ type: 'gates', gates: this.gates() });
     // Enabling sensors made the library restart measurements at each sensor's own period; apply our sampling choice on top.
     if (this.options.fastSampling) this.applyOptions();
@@ -220,6 +227,25 @@ export class GoDirectPhotogateSource implements PhotogateSource {
       const deviceUsable = !eventBased && Math.abs(viaDevice - viaBrowser) < 0.25;
       this.eventLog.push(`${beam.info.label}: browser ${viaBrowser.toFixed(4)} s · device ${viaDevice.toFixed(4)} s · sample ${beam.sampleCount - 1} @ ${(periodS * 1000).toFixed(0)} ms${deviceUsable ? '' : ` — device clock NOT used (${eventBased ? 'event-based channel' : 'disagrees with browser time'}); using browser time`}`);
       this.emit({ type: 'blocked', gateId: beam.info.id, time: this.options.timingMode === 'device' && deviceUsable ? viaDevice : viaBrowser });
+    }
+  }
+
+  /**
+   * Enable the firmware-timed Object Velocity / Object Acceleration channels. The library disables channels that a newly enabled
+   * channel is mutually exclusive with, so the channel list is logged AFTER enabling to show exactly what survived.
+   */
+  private enableObjectChannels(device: GdxDevice, devName: string) {
+    for (const [kind, test] of [['velocity', isObjectVelocity], ['acceleration', isObjectAcceleration]] as const) {
+      const sensor = device.sensors.find((s) => test(s.name));
+      if (!sensor) {
+        this.diag.push(`${devName}: no "${kind === 'velocity' ? 'Object Velocity' : 'Object Acceleration'}" channel found`);
+        continue;
+      }
+      sensor.setEnabled(true);
+      sensor.on('value-changed', (s) => {
+        if (s.value !== null && Number.isFinite(s.value)) this.emit({ type: 'object', kind, value: s.value, time: performance.now() / 1000 - this.clockZero });
+      });
+      this.diag.push(`${devName}: enabled "${sensor.name}" (channel ${sensor.number}, ${sensor.unit || 'no unit'})`);
     }
   }
 
