@@ -63,3 +63,17 @@ describe('SimulatedPhotogateSource', () => {
     expect(s.gates()).toHaveLength(5);
   });
 });
+
+import { isBeamChannel } from './GoDirectPhotogateSource';
+describe('isBeamChannel (Vernier channel names)', () => {
+  it('accepts the two gate-state channels, with any dash style', () => {
+    expect(isBeamChannel('Gate 1 – Gate State')).toBe(true);
+    expect(isBeamChannel('Gate 2 - Gate State')).toBe(true);
+    expect(isBeamChannel(' Gate 2 — Gate State ')).toBe(true);
+  });
+  it('rejects remote/laser gates, timing and object channels', () => {
+    for (const n of ['Laser Gate – Gate State', 'Gate 1/Remote Gate – Timing', 'Laser Gate/Remote Gate – Timing', 'Remote Gate – Object Velocity', 'Object Velocity', 'Object Acceleration', 'Gate 3 – Gate State']) {
+      expect(isBeamChannel(n)).toBe(false);
+    }
+  });
+});

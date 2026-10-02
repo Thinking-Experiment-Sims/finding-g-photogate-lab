@@ -12,14 +12,16 @@ const GATE_NAME_PREFIX = 'GDX-VPG';
 /** Sensor channel 4 = "Gate 1" state in Vernier's example: value 1 = blocked, 0 = clear. Used only if no gate sensors are found by name. */
 const GATE_1_CHANNEL = 4;
 /** A Go Direct Photogate has two beams. We find them by sensor name ("Gate 1", "Gate 2") so we do not hard-code channel numbers. */
-const GATE_NAME = /^gate\s*([12])$/i;
+const GATE_NAME = /^gate\s*([12])\b.*gate\s*state/i;
+/** Vernier's documented channel names are "Gate 1 – Gate State" and "Gate 2 – Gate State". Excludes remote/laser gates and timing channels. */
+export const isBeamChannel = (name: string) => GATE_NAME.test(name.trim()) && !/remote|laser/i.test(name);
 
 /** Minimal shape of what we use from @vernier/godirect (the library ships loose types). */
 interface GdxSensor {
   number: number;
   name: string;
   unit: string;
-  specs?: { measurementInfo?: { minPeriod?: number; typicalPeriod?: number } };
+  specs?: { measurementInfo?: { mode?: number; minPeriod?: number; typicalPeriod?: number } };
   setEnabled(on: boolean): void;
   on(event: 'value-changed', cb: (s: { value: number | null }) => void): void;
   off?(event: string, cb: unknown): void;
@@ -65,6 +67,7 @@ export class GoDirectPhotogateSource implements PhotogateSource {
   private diag: string[] = [];
   private clocks = new Map<string, DeviceClock>();
   private eventLog: string[] = [];
+  private packetLog: string[] = [];
   options: SourceOptions = { timingMode: 'device', fastSampling: false };
   private latest = new Map<string, number>();
   private deviceLabels = new Map<string, string>();
@@ -83,7 +86,8 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     const log = this.eventLog.length
       ? ['', 'Recent beam events (seconds after arming). "browser" = when Bluetooth delivered it; "device" = the gate\'s own clock:', ...this.eventLog.slice(-12)]
       : [];
-    return [...this.diag, ...live, ...log];
+    const packets = this.packetLog.length ? ['', 'First raw measurement packets (hex; for diagnosing the event format):', ...this.packetLog] : [];
+    return [...this.diag, ...live, ...log, ...packets];
   }
 
   /** Apply the sampling option to every connected device. */
@@ -125,9 +129,9 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     const device = (await godirect.createDevice(ble)) as unknown as GdxDevice;
     const devName = device.name || ble.name || 'Photogate';
 
-    this.diag.push(`${devName}: channels ${device.sensors.map((s) => `${s.number}="${s.name}"${s.unit ? ` (${s.unit})` : ''}`).join(', ') || '(none reported)'}`);
-    // Exact names only ("Gate 1", "Gate 2"): a loose match could also catch other channels (e.g. "Gate 1 Time") and create phantom beams.
-    let gateSensors = device.sensors.filter((s) => GATE_NAME.test(s.name.trim())).sort((a, b) => a.number - b.number);
+    this.diag.push(`${devName}: channels ${device.sensors.map((s) => `${s.number}="${s.name}"${s.unit ? ` (${s.unit})` : ''} [${s.specs?.measurementInfo?.mode === 1 ? 'event-based' : 'fixed-rate'}]`).join(', ') || '(none reported)'}`);
+    // Only the two "Gate n – Gate State" channels become beams; remote/laser gates and timing channels must not.
+    let gateSensors = device.sensors.filter((s) => isBeamChannel(s.name)).sort((a, b) => a.number - b.number);
     if (gateSensors.length === 0) {
       const fallback = device.getSensor(GATE_1_CHANNEL);
       if (fallback) {
@@ -143,7 +147,7 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     this.deviceLabels.set(ble.id, devName);
     this.diag.push(`${devName}: listening to ${gateSensors.length} beam channel${gateSensors.length === 1 ? '' : 's'}: ${gateSensors.map((x) => `${x.number}="${x.name}"`).join(', ')}`);
     const added: Beam[] = gateSensors.map((sensor) => {
-      const m = GATE_NAME.exec(sensor.name);
+      const m = GATE_NAME.exec(sensor.name.trim());
       const label = `${devName} · beam ${m ? m[1] : sensor.number}`;
       return { info: { id: `${ble.id}#${sensor.number}`, label, beam: 'unknown' as const }, deviceId: ble.id, device, sensor, armedClear: false, sampleCount: 0 };
     });
@@ -152,6 +156,7 @@ export class GoDirectPhotogateSource implements PhotogateSource {
       beam.sensor.on('value-changed', (s) => this.onValue(beam, s.value));
     }
     this.clocks.set(ble.id, new DeviceClock());
+    this.tapPackets(device, devName);
     device.on('measurements-started', () => {
       // Every (re)start begins a new device timeline: sample 0 again.
       this.beams.filter((b) => b.deviceId === ble.id).forEach((b) => (b.sampleCount = 0));
@@ -166,6 +171,27 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     this.emit({ type: 'gates', gates: this.gates() });
     // Enabling sensors made the library restart measurements at each sensor's own period; apply our sampling choice on top.
     if (this.options.fastSampling) this.applyOptions();
+  }
+
+  /**
+   * DIAGNOSTIC ONLY. Records the first raw measurement packets so the Go Direct event format can be inspected: the library ignores
+   * any timestamps these packets may carry. Wraps the library's private _handleResponse without changing its behavior.
+   */
+  private tapPackets(device: GdxDevice, name: string) {
+    const d = device as unknown as { _handleResponse?: (n: DataView) => void };
+    const original = d._handleResponse?.bind(device);
+    if (!original) return;
+    d._handleResponse = (n: DataView) => {
+      try {
+        if (n.byteLength > 4 && n.getUint8(0) === 0x20 && this.packetLog.length < 40) {
+          const bytes = Array.from(new Uint8Array(n.buffer, n.byteOffset, Math.min(n.byteLength, 40))).map((b) => b.toString(16).padStart(2, '0')).join(' ');
+          this.packetLog.push(`${(performance.now() / 1000).toFixed(3)} s ${name.split(' ').pop()} type 0x${n.getUint8(4).toString(16)}: ${bytes}`);
+        }
+      } catch {
+        /* diagnostics must never break measurement */
+      }
+      original(n);
+    };
   }
 
   private onValue(beam: Beam, value: number | null) {
@@ -188,8 +214,12 @@ export class GoDirectPhotogateSource implements PhotogateSource {
       beam.armedClear = false; // one event per beam per arm
       const viaBrowser = arrival - this.clockZero;
       const viaDevice = deviceEstimate - this.clockZero;
-      this.eventLog.push(`${beam.info.label}: browser ${viaBrowser.toFixed(4)} s · device ${viaDevice.toFixed(4)} s · sample ${beam.sampleCount - 1} @ ${(periodS * 1000).toFixed(0)} ms`);
-      this.emit({ type: 'blocked', gateId: beam.info.id, time: this.options.timingMode === 'device' ? viaDevice : viaBrowser });
+      // Sample-number timing is only meaningful for FIXED-RATE channels. Gate-state channels are normally EVENT-based
+      // (values arrive only on a change), so counting them × period is meaningless; and if the two clocks disagree wildly, distrust the device one.
+      const eventBased = beam.sensor.specs?.measurementInfo?.mode === 1;
+      const deviceUsable = !eventBased && Math.abs(viaDevice - viaBrowser) < 0.25;
+      this.eventLog.push(`${beam.info.label}: browser ${viaBrowser.toFixed(4)} s · device ${viaDevice.toFixed(4)} s · sample ${beam.sampleCount - 1} @ ${(periodS * 1000).toFixed(0)} ms${deviceUsable ? '' : ` — device clock NOT used (${eventBased ? 'event-based channel' : 'disagrees with browser time'}); using browser time`}`);
+      this.emit({ type: 'blocked', gateId: beam.info.id, time: this.options.timingMode === 'device' && deviceUsable ? viaDevice : viaBrowser });
     }
   }
 
