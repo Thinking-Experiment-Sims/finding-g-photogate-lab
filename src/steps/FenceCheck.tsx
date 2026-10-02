@@ -12,7 +12,8 @@ function reportText(pitchCm: string, c: FenceCapture, diag: string[], summary: s
     `flag spacing: ${pitchCm} cm`,
     ...summary,
     '',
-    `gate-1 blocked times (s, browser clock): ${c.blocked.map((t) => t.toFixed(4)).join(', ') || 'none'}`,
+    `gate-1 blocked times, gate timestamps (s): ${c.blocked.map((t) => t.toFixed(5)).join(', ') || 'none'}`,
+    `gate-1 blocked times, browser receive (s): ${(c.blockedReceive ?? []).map((t) => t.toFixed(4)).join(', ') || 'none'}`,
     `Object Velocity values (m/s): ${c.velocities.map((v) => v.toFixed(4)).join(', ') || 'none'}`,
     `Object Acceleration values (m/s²): ${c.accelerations.map((v) => v.toFixed(4)).join(', ') || 'none'}`,
     '',
@@ -23,7 +24,7 @@ function reportText(pitchCm: string, c: FenceCapture, diag: string[], summary: s
 
 export function FenceCheck({ onBack }: { onBack: () => void }) {
   const sourceRef = useRef<GoDirectPhotogateSource | null>(null);
-  const capture = useRef<FenceCapture>({ pitch: 0.05, blocked: [], velocities: [], accelerations: [] });
+  const capture = useRef<FenceCapture>({ pitch: 0.05, blocked: [], blockedReceive: [], velocities: [], accelerations: [] });
   const [, bump] = useState(0);
   const [pitchText, setPitchText] = useState('5.0');
   const [running, setRunning] = useState(false);
@@ -42,7 +43,10 @@ export function FenceCheck({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     const off = src.subscribe((e: SourceEvent) => {
       if (running) {
-        if (e.type === 'blocked' && src.gates().find((g) => g.id === e.gateId)?.label.includes('beam 1')) capture.current.blocked.push(e.time);
+        if (e.type === 'blocked' && src.gates().find((g) => g.id === e.gateId)?.label.includes('beam 1')) {
+          capture.current.blocked.push(e.time);
+          capture.current.blockedReceive?.push(e.receiveTime ?? e.time);
+        }
         if (e.type === 'object' && e.kind === 'velocity') capture.current.velocities.push(e.value);
         if (e.type === 'object' && e.kind === 'acceleration') capture.current.accelerations.push(e.value);
       }
@@ -66,7 +70,7 @@ export function FenceCheck({ onBack }: { onBack: () => void }) {
   };
 
   const start = () => {
-    capture.current = { pitch: 0.05, blocked: [], velocities: [], accelerations: [] };
+    capture.current = { pitch: 0.05, blocked: [], blockedReceive: [], velocities: [], accelerations: [] };
     setReport(null);
     setSummary([]);
     src.arm();
@@ -86,8 +90,8 @@ export function FenceCheck({ onBack }: { onBack: () => void }) {
         `flags analysed: ${r.flags} (blocked events ${r.blockedCount}, velocity values ${r.velocityCount})`,
         `g from firmware velocities (no timing): ${fmt(r.gFromVelocities, 3)}${r.gFromVelocitiesSigma !== undefined ? ` ± ${fmt(r.gFromVelocitiesSigma, 3)}` : ''} m/s²`,
         `g from Object Acceleration channel: ${r.gFromAccelChannel !== undefined ? fmt(r.gFromAccelChannel, 3) : 'no values'} m/s²`,
-        `g from browser-time stamps (what the lab's time path gives): ${r.gFromBrowserTimes !== undefined ? fmt(r.gFromBrowserTimes, 3) : '—'} m/s²`,
-        `Bluetooth timing error per flag gap: mean ${fmt(r.intervalErrorMeanMs, 2)} ms, SD ${fmt(r.intervalErrorSdMs, 2)} ms`,
+        `g from the gate's own timestamps (what the lab now uses): ${r.gFromBrowserTimes !== undefined ? fmt(r.gFromBrowserTimes, 3) : '—'} m/s²; timing error per flag gap: mean ${fmt(r.intervalErrorMeanMs, 3)} ms, SD ${fmt(r.intervalErrorSdMs, 3)} ms`,
+        `g from browser receive times (the old, Bluetooth-limited way): ${r.gFromReceiveTimes !== undefined ? fmt(r.gFromReceiveTimes, 3) : '—'} m/s²; timing error per flag gap: mean ${r.receiveIntervalErrorMeanMs !== undefined ? fmt(r.receiveIntervalErrorMeanMs, 2) : '—'} ms, SD ${r.receiveIntervalErrorSdMs !== undefined ? fmt(r.receiveIntervalErrorSdMs, 2) : '—'} ms (this is the Bluetooth jitter)`,
       );
     } else {
       lines.push(`could not analyse: ${res.reason}`);

@@ -4,8 +4,10 @@ import { linearFit, quadraticFit, type Result } from './regression';
 export interface FenceCapture {
   /** Distance between the leading edges of successive flags, meters. */
   pitch: number;
-  /** Browser time (s) of each blocked event on Gate 1: one per flag. */
+  /** Time (s) of each blocked event on Gate 1, one per flag: the gate's own timestamps when available, else browser time. */
   blocked: number[];
+  /** The same events by the browser's receive time (s), when recorded separately, to show how much Bluetooth adds. */
+  blockedReceive?: number[];
   /** Firmware-timed Object Velocity values (m/s), one per flag, in order. Sign depends on fence direction. */
   velocities: number[];
   /** Firmware Object Acceleration values (m/s²), if the channel delivered any. */
@@ -23,13 +25,17 @@ export interface FenceReport {
   gFromVelocitiesSigma?: number;
   /** g from the firmware's own Object Acceleration channel (mean magnitude), if present. */
   gFromAccelChannel?: number;
-  /** g from a quadratic fit of distance vs browser time, i.e. what the lab's timing path would give with this fence. */
+  /** g from a quadratic fit of distance vs the `blocked` times: what the lab's time-based path gives with this fence. */
   gFromBrowserTimes?: number;
-  /** Browser-time interval error per flag gap: measured − firmware-derived (ms). */
+  /** Interval error per flag gap: measured − firmware-derived (ms). */
   intervalErrorMs: number[];
   intervalErrorMeanMs: number;
-  /** Standard deviation of the interval error (ms): the Bluetooth jitter, the number we need. */
+  /** Standard deviation of the interval error (ms) for the `blocked` times. */
   intervalErrorSdMs: number;
+  /** Same measures for the browser-receive times, if provided: this is the Bluetooth jitter. */
+  receiveIntervalErrorMeanMs?: number;
+  receiveIntervalErrorSdMs?: number;
+  gFromReceiveTimes?: number;
 }
 
 const fail = (reason: string): Result<FenceReport> => ({ ok: false, reason });
@@ -66,15 +72,19 @@ export function analyzeFence(c: FenceCapture): Result<FenceReport> {
   const trueGaps: number[] = [];
   for (let k = 0; k + 1 < v.length; k++) trueGaps.push(trueTime(k + 1) - trueTime(k));
 
-  const errors: number[] = [];
-  let gFromBrowserTimes: number | undefined;
-  if (flags >= 2) {
-    for (let k = 0; k + 1 < flags; k++) errors.push(((c.blocked[k + 1] - c.blocked[k]) - trueGaps[k]) * 1000);
-  }
-  if (c.blocked.length >= 4) {
-    const q = quadraticFit(c.blocked.map((t, k) => ({ x: t - c.blocked[0], y: k * c.pitch })));
-    if (q.ok) gFromBrowserTimes = Math.abs(2 * q.value.A);
-  }
+  const gaps = (times: number[]) => {
+    const errs: number[] = [];
+    for (let k = 0; k + 1 < Math.min(times.length, v.length); k++) errs.push((times[k + 1] - times[k] - trueGaps[k]) * 1000);
+    return errs;
+  };
+  const quadG = (times: number[]) => {
+    if (times.length < 4) return undefined;
+    const q = quadraticFit(times.map((t, k) => ({ x: t - times[0], y: k * c.pitch })));
+    return q.ok ? Math.abs(2 * q.value.A) : undefined;
+  };
+  const errors = flags >= 2 ? gaps(c.blocked) : [];
+  const gFromBrowserTimes = quadG(c.blocked);
+  const recvErrors = c.blockedReceive && c.blockedReceive.length >= 2 ? gaps(c.blockedReceive) : [];
   const acc = c.accelerations.map(Math.abs).filter(Number.isFinite);
 
   return {
@@ -90,6 +100,9 @@ export function analyzeFence(c: FenceCapture): Result<FenceReport> {
       intervalErrorMs: errors,
       intervalErrorMeanMs: errors.length ? mean(errors) : 0,
       intervalErrorSdMs: sd(errors),
+      receiveIntervalErrorMeanMs: recvErrors.length ? mean(recvErrors) : undefined,
+      receiveIntervalErrorSdMs: recvErrors.length ? sd(recvErrors) : undefined,
+      gFromReceiveTimes: c.blockedReceive ? quadG(c.blockedReceive) : undefined,
     },
   };
 }

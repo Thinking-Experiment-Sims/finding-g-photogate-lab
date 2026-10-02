@@ -58,21 +58,26 @@ Likely better approaches to investigate with hardware in hand:
 3. Use **one** photogate with a picket fence (many timestamps, one clock). This sidesteps the multi-device clock problem
    entirely, at the cost of a different lab design.
 
-## Device-clock timing (added after the first draft)
+## Gate timestamps ARE in the Bluetooth packets (verified on real hardware, 2026-10-02)
 
-The library still exposes no timestamps, but it delivers every sample in order at a fixed period, and it restarts measurements (new
-timeline) whenever sensors are enabled (`measurements-started`). `src/sensors/deviceClock.ts` therefore treats sample *k* as happening
-at *k × period* on the gate's own clock and maps that onto the browser clock using the **minimum** of (arrival − k × period) over all
-samples, which cancels most Bluetooth jitter and lines two unsynchronized gates up on one timeline. The Troubleshooting panel lets you
-switch between this ("Gate's own clock", default) and plain receive-time, logs both for each event, and offers an experimental "fastest
-sampling rate" option.
+Real packets from a GDX-VPG showed that `@vernier/godirect` discards a **microsecond timestamp on every event packet**. Layout (20 bytes,
+little-endian): `[0]=0x20 [1]=length [2]=counter [3]=checksum [4]=subtype (0x0b int32 gate state / 0x0a float32 velocity) [5]=0xef [6]=channel
+[7]=count [8..11]=value [12..15]=timestamp (uint32 µs on the gate's own clock)`. Verified: the pulse time between the Gate 1 and Gate 2
+block timestamps (25.134 ms) gives 0.02 m / 0.025134 s = 0.79573 m/s, matching the firmware's Object Velocity (0.7957), and the velocity's own
+timestamp is exactly the midpoint of the two beam times. Decoder: `src/sensors/goDirectPackets.ts` (tests use the real packets).
 
-- Simulation (`deviceClock.test.ts`, under an *assumed* 8–60 ms latency model) shows the gate-to-gate interval error falling by more
-  than half. **This is a model, not a measurement** — verify with real drops.
-- Resolution is one sampling period (default is whatever the sensors report; the library clamps requests to ≥ 10 ms unless we lower
-  `minMeasurementPeriod`, which "fastest sampling" does).
-- Assumes no dropped packets (the library ignores DROPPED packets) and negligible clock-rate drift.
-- Cross-gate alignment is only as good as the difference in best-case Bluetooth latency between the two gates (a few ms).
+Consequences:
+- **Within one photogate, times are exact (1 µs)**: the two beams, the pulse time, and the velocity need no alignment or Bluetooth.
+- **Between different photogates the clocks are unsynchronized** (each starts at its own zero). `src/sensors/eventClock.ts` aligns them
+  using the minimum of (arrival − timestamp) over all packets (including packets seen before arming). Simulation: ~10 events → a few ms
+  alignment error; ~60 events → 1–2 ms. Real capture: arrival−timestamp offsets spread over ~30 ms for 5 packets, so more packets matter.
+  The app tells students to wave a hand through each gate ~5 times first; the Troubleshooting panel shows packets seen and latency spread.
+- The old sample-count approach was wrong for these event-based channels and was removed.
+- Library quirk: it restarts measurements (new timestamp origin) whenever a sensor is enabled; `EventClock.reset()` runs on `measurements-started`.
+- Channel list for the GDX-VPG (from a real device): 1 Object Velocity (m/s), 3 Object Acceleration (multiple flags) (m/s²), 4 Gate 1 – Gate State,
+  5 Gate 2 – Gate State, 6 Laser Gate – Gate State, 9 Remote Gate – Object Velocity, 11 Remote Gate – Object Acceleration, 12 Gate 1/Remote Gate –
+  Timing (s), 13 Laser Gate/Remote Gate – Timing (s); all event-based. Object Velocity and Object Acceleration can be enabled together with the
+  gate-state channels (verified: all four stayed enabled).
 
 ## Recommendation
 

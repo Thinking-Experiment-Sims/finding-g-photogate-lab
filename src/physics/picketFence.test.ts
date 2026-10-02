@@ -58,3 +58,15 @@ describe('analyzeFence', () => {
     expect(analyzeFence({ ...c, pitch: NaN }).ok).toBe(false);
   });
 });
+
+describe('analyzeFence with gate timestamps AND receive times', () => {
+  it('reports exact gate timing (≈0 error) next to the Bluetooth jitter of the receive times', () => {
+    const exact = simulate({ jitterMs: 0 });
+    const noisy = simulate({ jitterMs: 20, seed: 4 });
+    const rep = ok({ ...exact, blockedReceive: noisy.blocked });
+    expect(rep.intervalErrorSdMs).toBeLessThan(0.5); // gate timestamps
+    expect(rep.receiveIntervalErrorSdMs).toBeGreaterThan(8); // Bluetooth
+    expect(rep.gFromBrowserTimes).toBeCloseTo(9.81, 1);
+    expect(Math.abs((rep.gFromReceiveTimes ?? 0) - 9.81)).toBeGreaterThan(0.2);
+  });
+});
