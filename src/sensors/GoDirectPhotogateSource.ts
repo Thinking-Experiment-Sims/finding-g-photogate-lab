@@ -3,7 +3,8 @@
 // STATUS: EXPERIMENTAL — written against Vernier's official @vernier/godirect library and its published
 // photogate example, but NOT tested with real hardware (this was authored without access to any).
 // See docs/VERNIER-FINDINGS.md for what is known, assumed, and risky.
-import type { GateInfo, PhotogateSource, SourceEvent } from './types';
+import { DeviceClock } from './deviceClock';
+import type { GateInfo, PhotogateSource, SourceEvent, SourceOptions } from './types';
 
 /** Go Direct Photogate service + name prefix, as used in Vernier's own gdx_photogate.html example. */
 const GDX_SERVICE = 'd91714ef-28b9-4f91-ba16-f0d9a604f112';
@@ -18,6 +19,7 @@ interface GdxSensor {
   number: number;
   name: string;
   unit: string;
+  specs?: { measurementInfo?: { minPeriod?: number; typicalPeriod?: number } };
   setEnabled(on: boolean): void;
   on(event: 'value-changed', cb: (s: { value: number | null }) => void): void;
   off?(event: string, cb: unknown): void;
@@ -25,8 +27,12 @@ interface GdxSensor {
 interface GdxDevice {
   name: string;
   sensors: GdxSensor[];
+  /** Sampling period in milliseconds currently in use. */
+  measurementPeriod: number;
+  minMeasurementPeriod: number;
   getSensor(n: number): GdxSensor | undefined;
-  on(event: 'device-closed', cb: () => void): void;
+  start(period?: number): void;
+  on(event: 'device-closed' | 'measurements-started', cb: () => void): void;
   close(): void;
 }
 
@@ -37,6 +43,7 @@ interface Beam {
   device: GdxDevice;
   sensor: GdxSensor;
   armedClear: boolean; // saw a "clear" reading since arming, so the next "blocked" is a real event
+  sampleCount: number; // samples received since measurements (re)started: this beam's position on the device clock
 }
 
 interface BluetoothLike {
@@ -56,6 +63,9 @@ export class GoDirectPhotogateSource implements PhotogateSource {
   private armed = false;
   private clockZero = 0;
   private diag: string[] = [];
+  private clocks = new Map<string, DeviceClock>();
+  private eventLog: string[] = [];
+  options: SourceOptions = { timingMode: 'device', fastSampling: false };
   private latest = new Map<string, number>();
   private deviceLabels = new Map<string, string>();
 
@@ -70,7 +80,29 @@ export class GoDirectPhotogateSource implements PhotogateSource {
 
   diagnostics(): string[] {
     const live = this.beams.map((b) => `${b.info.label}: channel ${b.sensor.number} "${b.sensor.name}", latest raw value ${this.latest.get(b.info.id) ?? 'none yet'}`);
-    return [...this.diag, ...live];
+    const log = this.eventLog.length
+      ? ['', 'Recent beam events (seconds after arming). "browser" = when Bluetooth delivered it; "device" = the gate\'s own clock:', ...this.eventLog.slice(-12)]
+      : [];
+    return [...this.diag, ...live, ...log];
+  }
+
+  /** Apply the sampling option to every connected device. */
+  applyOptions() {
+    for (const deviceId of new Set(this.beams.map((b) => b.deviceId))) {
+      const mine = this.beams.filter((b) => b.deviceId === deviceId);
+      const device = mine[0].device;
+      const infos = mine.map((b) => b.sensor.specs?.measurementInfo);
+      const typical = Math.max(...infos.map((i) => i?.typicalPeriod ?? 10));
+      const fastest = Math.max(1, ...infos.map((i) => i?.minPeriod ?? 1));
+      const target = this.options.fastSampling ? fastest : typical;
+      this.diag.push(`${mine[0].info.label.split(' · ')[0]}: asking for a ${target} ms sampling period (reported typical ${typical} ms, fastest ${fastest} ms)`);
+      try {
+        device.minMeasurementPeriod = Math.min(device.minMeasurementPeriod, target);
+        device.start(target);
+      } catch (err) {
+        this.diag.push(`Could not change the sampling period: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   subscribe(listener: (e: SourceEvent) => void) {
@@ -111,12 +143,18 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     const added: Beam[] = gateSensors.map((sensor) => {
       const m = GATE_NAME.exec(sensor.name);
       const label = `${devName} · beam ${m ? m[1] : sensor.number}`;
-      return { info: { id: `${ble.id}#${sensor.number}`, label, beam: 'unknown' as const }, deviceId: ble.id, device, sensor, armedClear: false };
+      return { info: { id: `${ble.id}#${sensor.number}`, label, beam: 'unknown' as const }, deviceId: ble.id, device, sensor, armedClear: false, sampleCount: 0 };
     });
     for (const beam of added) {
       beam.sensor.setEnabled(true);
       beam.sensor.on('value-changed', (s) => this.onValue(beam, s.value));
     }
+    this.clocks.set(ble.id, new DeviceClock());
+    device.on('measurements-started', () => {
+      // Every (re)start begins a new device timeline: sample 0 again.
+      this.beams.filter((b) => b.deviceId === ble.id).forEach((b) => (b.sampleCount = 0));
+      this.clocks.get(ble.id)?.reset();
+    });
     device.on('device-closed', () => {
       this.beams = this.beams.filter((b) => b.deviceId !== ble.id);
       this.deviceLabels.delete(ble.id);
@@ -124,10 +162,16 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     });
     this.beams.push(...added);
     this.emit({ type: 'gates', gates: this.gates() });
+    // Enabling sensors made the library restart measurements at each sensor's own period; apply our sampling choice on top.
+    if (this.options.fastSampling) this.applyOptions();
   }
 
   private onValue(beam: Beam, value: number | null) {
     if (value === null || !Number.isFinite(value)) return;
+    const arrival = performance.now() / 1000;
+    // Position of this sample on the device's own clock, mapped onto the browser clock (see deviceClock.ts).
+    const periodS = (beam.device.measurementPeriod || 10) / 1000;
+    const deviceEstimate = (this.clocks.get(beam.deviceId) ?? (this.clocks.set(beam.deviceId, new DeviceClock()), this.clocks.get(beam.deviceId)!)).observe(beam.sampleCount++, periodS, arrival);
     this.latest.set(beam.info.id, value);
     const blocked = value === 1;
     const state = blocked ? 'blocked' : 'clear';
@@ -140,9 +184,10 @@ export class GoDirectPhotogateSource implements PhotogateSource {
       beam.armedClear = true;
     } else if (beam.armedClear) {
       beam.armedClear = false; // one event per beam per arm
-      // TIMING CAVEAT: the library exposes no device timestamp, so this is the browser's receive time.
-      // Bluetooth delivery jitter is added to every beam. See docs/VERNIER-FINDINGS.md.
-      this.emit({ type: 'blocked', gateId: beam.info.id, time: performance.now() / 1000 - this.clockZero });
+      const viaBrowser = arrival - this.clockZero;
+      const viaDevice = deviceEstimate - this.clockZero;
+      this.eventLog.push(`${beam.info.label}: browser ${viaBrowser.toFixed(4)} s · device ${viaDevice.toFixed(4)} s · sample ${beam.sampleCount - 1} @ ${(periodS * 1000).toFixed(0)} ms`);
+      this.emit({ type: 'blocked', gateId: beam.info.id, time: this.options.timingMode === 'device' ? viaDevice : viaBrowser });
     }
   }
 
@@ -154,12 +199,14 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     if (mine.length === 0) return;
     this.beams = this.beams.filter((b) => b.deviceId !== id);
     this.deviceLabels.delete(id);
+    this.clocks.delete(id);
     mine[0].device.close();
     this.emit({ type: 'gates', gates: this.gates() });
   }
 
   arm() {
     this.clockZero = performance.now() / 1000;
+    this.eventLog = [];
     this.beams.forEach((b) => (b.armedClear = b.info.beam === 'clear'));
     this.armed = true;
   }

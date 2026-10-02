@@ -20,6 +20,7 @@ interface Props {
   onAddGate: () => void;
   onRemoveGate: (gateId: string) => void;
   onSort: () => void;
+  onRefresh: () => void;
   /** The stand geometry changed, so any recorded times no longer match the heights. */
   onStandMoved: () => void;
   onArm: () => void;
@@ -91,6 +92,32 @@ export function Collect(p: Props) {
           {p.mode === 'vernier' && p.source?.diagnostics && (
             <details className="reveal">
               <summary>Troubleshooting: what the photogates report</summary>
+              {p.source.options && (
+                <div className="opts">
+                  <fieldset className="choice">
+                    <legend>Timing method</legend>
+                    {(['device', 'receive'] as const).map((m) => (
+                      <label key={m} className={p.source!.options!.timingMode === m ? 'pill on' : 'pill'}>
+                        <input
+                          type="radio"
+                          name="timingMode"
+                          checked={p.source!.options!.timingMode === m}
+                          onChange={() => { p.source!.options!.timingMode = m; p.source!.applyOptions?.(); p.onRefresh(); }}
+                        />
+                        {m === 'device' ? 'Gate’s own clock (recommended)' : 'When the browser receives it'}
+                      </label>
+                    ))}
+                  </fieldset>
+                  <label className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={p.source.options.fastSampling}
+                      onChange={(e) => { p.source!.options!.fastSampling = e.target.checked; p.source!.applyOptions?.(); p.onRefresh(); }}
+                    />
+                    Ask the gates for their fastest sampling rate (experimental; if times stop appearing, turn this off)
+                  </label>
+                </div>
+              )}
               <pre className="diag">{p.source.diagnostics().join('\n') || 'Nothing connected yet.'}</pre>
             </details>
           )}

@@ -58,6 +58,22 @@ Likely better approaches to investigate with hardware in hand:
 3. Use **one** photogate with a picket fence (many timestamps, one clock). This sidesteps the multi-device clock problem
    entirely, at the cost of a different lab design.
 
+## Device-clock timing (added after the first draft)
+
+The library still exposes no timestamps, but it delivers every sample in order at a fixed period, and it restarts measurements (new
+timeline) whenever sensors are enabled (`measurements-started`). `src/sensors/deviceClock.ts` therefore treats sample *k* as happening
+at *k × period* on the gate's own clock and maps that onto the browser clock using the **minimum** of (arrival − k × period) over all
+samples, which cancels most Bluetooth jitter and lines two unsynchronized gates up on one timeline. The Troubleshooting panel lets you
+switch between this ("Gate's own clock", default) and plain receive-time, logs both for each event, and offers an experimental "fastest
+sampling rate" option.
+
+- Simulation (`deviceClock.test.ts`, under an *assumed* 8–60 ms latency model) shows the gate-to-gate interval error falling by more
+  than half. **This is a model, not a measurement** — verify with real drops.
+- Resolution is one sampling period (default is whatever the sensors report; the library clamps requests to ≥ 10 ms unless we lower
+  `minMeasurementPeriod`, which "fastest sampling" does).
+- Assumes no dropped packets (the library ignores DROPPED packets) and negligible clock-rate drift.
+- Cross-gate alignment is only as good as the difference in best-case Bluetooth latency between the two gates (a few ms).
+
 ## Recommendation
 
 Ship the simulated workflow first. Before using Vernier mode with students, run a calibration test with real gates: drop the

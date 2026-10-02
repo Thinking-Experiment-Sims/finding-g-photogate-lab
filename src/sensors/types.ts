@@ -21,6 +21,14 @@ export type SourceEvent =
   | { type: 'beam'; gateId: string; beam: GateInfo['beam'] }
   | { type: 'error'; message: string };
 
+/** Hardware timing options (Vernier source only). */
+export interface SourceOptions {
+  /** 'device': use each photogate's own sample clock (sample number × period). 'receive': stamp events when the browser receives them. */
+  timingMode: 'device' | 'receive';
+  /** Ask the gates for the fastest sampling period they report (instead of their default). Experimental. */
+  fastSampling: boolean;
+}
+
 export interface PhotogateSource {
   readonly kind: SourceKind;
   /** Text that must be shown wherever data from this source appears. */
@@ -36,4 +44,7 @@ export interface PhotogateSource {
   dispose(): void;
   /** Plain-text lines for troubleshooting (sensor channels, latest raw values). Optional. */
   diagnostics?(): string[];
+  /** Timing options; present only on sources where they apply. Call `applyOptions()` after changing them. */
+  options?: SourceOptions;
+  applyOptions?(): void;
 }

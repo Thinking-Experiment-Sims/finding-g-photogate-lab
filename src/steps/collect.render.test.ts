@@ -13,7 +13,7 @@ describe('Collect with two two-beam photogates', () => {
   const html = renderToStaticMarkup(
     createElement(Collect, {
       mode: 'vernier', source: null, rows, creases: { A: '0.900', B: '0.500' }, beams: {}, armed: false, error: null,
-      onCrease: noop, onPosition: noop, onAddGate: noop, onRemoveGate: noop, onSort: noop, onStandMoved: noop,
+      onCrease: noop, onPosition: noop, onAddGate: noop, onRemoveGate: noop, onSort: noop, onRefresh: noop, onStandMoved: noop,
       onArm: noop, onDrop: noop, onReset: noop, onExport: noop, onNext: noop, onChangeSource: noop,
     }),
   );

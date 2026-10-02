@@ -215,6 +215,7 @@ export default function App() {
               onRemoveGate={(id) => { src ? src.removeGate(id) : setRows((r) => r.filter((x) => x.gateId !== id)); resetAnalysis(); }}
               onStandMoved={() => { clearTimes(); resetAnalysis(); }}
               onSort={sortRows}
+              onRefresh={() => bump((n) => n + 1)}
               onArm={arm}
               onDrop={() => (src as SimulatedPhotogateSource | null)?.drop()}
               onReset={() => chooseMode(mode)}
