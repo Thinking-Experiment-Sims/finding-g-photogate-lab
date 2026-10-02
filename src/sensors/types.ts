@@ -31,4 +31,6 @@ export interface PhotogateSource {
   arm(): void;
   disarm(): void;
   dispose(): void;
+  /** Plain-text lines for troubleshooting (sensor channels, latest raw values). Optional. */
+  diagnostics?(): string[];
 }

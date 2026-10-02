@@ -77,6 +77,13 @@ export function Collect(p: Props) {
             </div>
           )}
 
+          {p.mode === 'vernier' && p.source?.diagnostics && (
+            <details className="reveal">
+              <summary>Troubleshooting: what the photogates report</summary>
+              <pre className="diag">{p.source.diagnostics().join('\n') || 'Nothing connected yet.'}</pre>
+            </details>
+          )}
+
           {p.error && (
             <div className="callout warn" role="alert">
               {p.error}
