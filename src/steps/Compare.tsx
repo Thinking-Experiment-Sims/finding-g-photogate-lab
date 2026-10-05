@@ -22,7 +22,7 @@ export function Compare({ estimates, onExport }: { estimates: Estimate[]; onExpo
   return (
     <div className="step-grid single">
       <section className="card">
-        <h2>Three ways to find <i>g</i></h2>
+        <h2>{estimates.length === 3 ? 'Three' : 'Two'} ways to find <i>g</i></h2>
         <div className="table-wrap">
           <table className="data-table compare">
             <thead>
