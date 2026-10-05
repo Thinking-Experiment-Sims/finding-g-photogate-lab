@@ -11,6 +11,8 @@ export interface GateRow {
   /** Set for the beams of a two-beam photogate: the device id. Heights for these rows are derived, not typed. */
   groupId?: string;
   groupLabel?: string;
+  /** Instantaneous speed measured at this gate, m/s (from 1 µs dual-beam timing or firmware). */
+  velocity?: number | null;
 }
 
 
@@ -105,20 +107,31 @@ export function exampleRows(rand: () => number = Math.random): GateRow[] {
     label: `Gate ${i + 1}`,
     positionText: p.toFixed(3),
     rawTime: simulatedArrivalTime(p, rand),
+    velocity: Math.sqrt(2 * 9.81 * Math.max(1.3 - p, 0)),
   }));
 }
 
 /**
  * Turns raw beam rows into one STATION per physical photogate: height = the crease height the student typed (halfway between the
- * two beams), time = the mean of its beams' times (available only once every beam has fired). Averaging the two beams halves the
- * timing noise and avoids guessing which beam is on top. Ungrouped rows (simulated gates) are already stations and pass through.
+ * two beams), time = the exact kinematic time at the crease.
+ * Using the microsecond-timed beam arrival difference Δt = t2 - t1 and beam spacing d = 0.02 m:
+ *   v_bar = d / Δt,  v1 = v_bar - 0.5 * g * Δt,  vc = √(v1² + g * d).
+ * Crease arrival time: tc = t1 + d / (v1 + vc).
+ * This eliminates the second-order midpoint non-linearity error that simple arithmetic mean (t1 + t2)/2 suffers from.
+ * Also stores the ultra-accurate gate velocity v = 0.02 / Δt (1 µs resolution). Ungrouped rows pass through.
  */
-export function stationRows(rows: GateRow[], creases: Record<string, string>): GateRow[] {
+export function stationRows(rows: GateRow[], creases: Record<string, string>, gateVelocities?: Record<string, number>): GateRow[] {
   const out: GateRow[] = [];
   const seen = new Set<string>();
+  const g = 9.81;
+  const BEAM_SPACING = 0.02; // 2.0 cm between beams in Vernier Go Direct Photogate
+
   for (const r of rows) {
     if (!r.groupId) {
-      out.push(r);
+      out.push({
+        ...r,
+        velocity: r.velocity ?? (gateVelocities ? gateVelocities[r.gateId] ?? null : null),
+      });
       continue;
     }
     if (seen.has(r.groupId)) continue;
@@ -126,11 +139,35 @@ export function stationRows(rows: GateRow[], creases: Record<string, string>): G
     const members = rows.filter((m) => m.groupId === r.groupId);
     const times = members.map((m) => m.rawTime);
     const complete = times.every((t): t is number => t !== null && Number.isFinite(t));
+
+    let rawTime: number | null = null;
+    let velocity: number | null = gateVelocities ? gateVelocities[r.groupId] ?? null : null;
+
+    if (complete && times.length === 2) {
+      const [tA, tB] = times as [number, number];
+      const t1 = Math.min(tA, tB);
+      const t2 = Math.max(tA, tB);
+      const dt = t2 - t1;
+      if (dt > 1e-6) {
+        const vBar = BEAM_SPACING / dt;
+        if (!velocity) velocity = vBar;
+        const v1 = Math.max(vBar - 0.5 * g * dt, 0.01);
+        const vc = Math.sqrt(v1 * v1 + g * BEAM_SPACING);
+        const dtCrease = BEAM_SPACING / (v1 + vc);
+        rawTime = t1 + dtCrease;
+      } else {
+        rawTime = (tA + tB) / 2;
+      }
+    } else if (complete) {
+      rawTime = (times as number[]).reduce((a, b) => a + b, 0) / times.length;
+    }
+
     out.push({
       gateId: r.groupId,
       label: r.groupLabel ?? r.label,
       positionText: creases[r.groupId] ?? '',
-      rawTime: complete ? (times as number[]).reduce((a, b) => a + b, 0) / times.length : null,
+      rawTime,
+      velocity,
     });
   }
   return out;

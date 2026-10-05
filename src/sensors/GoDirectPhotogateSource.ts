@@ -69,8 +69,8 @@ export class GoDirectPhotogateSource implements PhotogateSource {
   private eventLog: string[] = [];
   private packetLog: string[] = [];
   options: SourceOptions = { timingMode: 'device' };
-  /** Also enable the gate's firmware Object Velocity / Object Acceleration channels (used by the picket-fence check). */
-  objectChannels = false;
+  /** Also enable the gate's firmware Object Velocity / Object Acceleration channels (timed inside the gate at 1 µs). */
+  objectChannels = true;
   private latest = new Map<string, number>();
   private deviceLabels = new Map<string, string>();
 
@@ -236,8 +236,9 @@ export class GoDirectPhotogateSource implements PhotogateSource {
       sensor.on('value-changed', (s) => {
         if (s.value === null || !Number.isFinite(s.value)) return;
         const receive = performance.now() / 1000 - this.clockZero;
-        const gate = this.gateTime(this.deviceIdOf(device), sensor.number);
-        this.emit({ type: 'object', kind, value: s.value, time: this.options.timingMode === 'device' && gate !== undefined ? gate : receive, receiveTime: receive });
+        const devId = this.deviceIdOf(device);
+        const gate = this.gateTime(devId, sensor.number);
+        this.emit({ type: 'object', kind, value: s.value, time: this.options.timingMode === 'device' && gate !== undefined ? gate : receive, receiveTime: receive, deviceId: devId });
       });
       this.diag.push(`${devName}: enabled "${sensor.name}" (channel ${sensor.number}, ${sensor.unit || 'no unit'})`);
     }

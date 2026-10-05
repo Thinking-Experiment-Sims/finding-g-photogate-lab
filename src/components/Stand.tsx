@@ -50,13 +50,15 @@ export function Stand({ source, gates, beams, onMoved }: { source: SimulatedPhot
     if (!el) return;
     const r = el.getBoundingClientRect();
     const py = ((clientY - r.top) / r.height) * H;
-    const next = Math.round(hOf(py) / 0.005) * 0.005;
+    const next = Math.round(hOf(py) / 0.001) * 0.001;
     const prev = source.standGates().find((g) => g.id === id)?.position;
     source.moveGate(id, next);
     if (prev !== source.standGates().find((g) => g.id === id)?.position) onMoved();
   };
 
-  const ticks = Array.from({ length: Math.round(H_MAX * 100) + 1 }, (_, i) => i);
+  const cmTicks = Array.from({ length: Math.round(H_MAX * 100) + 1 }, (_, i) => i);
+  const mm5Ticks = Array.from({ length: Math.round(H_MAX * 200) + 1 }, (_, i) => i);
+
   return (
     <svg ref={svg} className="stand" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Drop stand with a vertical ruler and photogates. Drag a gate to move it." style={{ touchAction: 'none' }}>
       <rect x={0} y={0} width={W} height={H} className="stand-bg" />
@@ -69,13 +71,20 @@ export function Stand({ source, gates, beams, onMoved }: { source: SimulatedPhot
       <rect x={POLE_X - 4} y={TOP} width={8} height={BOTTOM - TOP} className="stand-pole" />
       {/* ruler */}
       <rect x={RULER_X - 40} y={TOP - 6} width={46} height={BOTTOM - TOP + 6} className="stand-ruler" rx={3} />
-      {ticks.map((cm) => {
+      {mm5Ticks.map((i) => {
+        if (i % 2 === 0) return null; // cm ticks drawn separately with greater prominence
+        const py = yPx(i * 0.005);
+        return (
+          <line key={`mm5-${i}`} x1={RULER_X + 6} x2={RULER_X + 6 - 9} y1={py} y2={py} className="stand-tick minor" />
+        );
+      })}
+      {cmTicks.map((cm) => {
         const major = cm % 10 === 0;
         const mid = cm % 5 === 0;
         const py = yPx(cm / 100);
         return (
           <g key={cm}>
-            <line x1={RULER_X + 6} x2={RULER_X + 6 - (major ? 24 : mid ? 15 : 8)} y1={py} y2={py} className={major ? 'stand-tick' : 'stand-tick minor'} />
+            <line x1={RULER_X + 6} x2={RULER_X + 6 - (major ? 24 : mid ? 18 : 13)} y1={py} y2={py} className={major ? 'stand-tick' : 'stand-tick minor'} />
             {major && (
               <text x={RULER_X - 46} y={py + 4} textAnchor="end" className="stand-small">
                 {(cm / 100).toFixed(1)}
@@ -96,6 +105,7 @@ export function Stand({ source, gates, beams, onMoved }: { source: SimulatedPhot
       {stand.map((g) => {
         const info = gates.find((x) => x.id === g.id);
         const blocked = beams[g.id] === 'blocked';
+        const isDragging = dragging === g.id;
         const py = yPx(g.position);
         return (
           <g
@@ -110,11 +120,28 @@ export function Stand({ source, gates, beams, onMoved }: { source: SimulatedPhot
             onPointerMove={(e) => dragging === g.id && move(e.clientY, g.id)}
             onPointerUp={() => setDragging(null)}
           >
+            {/* hairline sightline connecting beam across gap to ruler tick */}
+            <line
+              x1={RULER_X + 6}
+              x2={POLE_X - 48}
+              y1={py}
+              y2={py}
+              className="stand-sightline"
+              stroke={isDragging ? 'var(--amber)' : 'var(--teal)'}
+              strokeWidth={isDragging ? 1.5 : 1}
+              strokeDasharray={isDragging ? 'none' : '3 3'}
+              opacity={isDragging ? 1 : 0.6}
+            />
+            {/* pointer triangle at ruler tick */}
+            <polygon
+              points={`${RULER_X + 6},${py} ${RULER_X + 11},${py - 3.5} ${RULER_X + 11},${py + 3.5}`}
+              fill={isDragging ? 'var(--amber)' : 'var(--teal-dark)'}
+            />
             <rect x={POLE_X - 56} y={py - 16} width={150} height={32} fill="transparent" />
             <rect x={POLE_X - 48} y={py - 7} width={96} height={14} rx={4} className="stand-gate-body" />
             <line x1={POLE_X - 48} x2={POLE_X + 48} y1={py} y2={py} className={blocked ? 'stand-beam blocked' : 'stand-beam'} />
-            <text x={POLE_X + 56} y={py + 5} className="stand-gate-label">
-              {info?.label ?? g.label}
+            <text x={POLE_X + 54} y={py + 5} className="stand-gate-label">
+              {info?.label ?? g.label} <tspan fill={isDragging ? 'var(--amber)' : 'var(--teal-dark)'} fontWeight="700">· {g.position.toFixed(3)} m</tspan>
             </text>
           </g>
         );

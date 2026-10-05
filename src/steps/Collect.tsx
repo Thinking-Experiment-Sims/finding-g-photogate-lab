@@ -1,6 +1,7 @@
 import { Stand } from '../components/Stand';
 import { fmt } from '../format';
 import { parsePosition, readiness, rowStatuses, type GateRow, type SavedPoint } from '../experiments/fallingMotion/model';
+import { percentDifference } from '../physics/kinematics';
 import type { SimulatedPhotogateSource } from '../sensors/SimulatedPhotogateSource';
 import type { GateInfo, PhotogateSource } from '../sensors/types';
 import { webBluetoothSupported } from '../sensors/GoDirectPhotogateSource';
@@ -31,6 +32,7 @@ interface Props {
   onRefresh: () => void;
   /** The stand geometry changed, so any recorded times no longer match the heights. */
   onStandMoved: () => void;
+  onCopyStandHeights?: () => void;
   onArm: () => void;
   onDrop: () => void;
   onReset: () => void;
@@ -56,6 +58,22 @@ export function Collect(p: Props) {
   const stationOf = (g: string) => p.rows.find((r) => r.gateId === g)!;
   const savedDrops = new Set(p.saved.map((x) => x.drop)).size;
   const sim = p.mode === 'simulated' ? (p.source as SimulatedPhotogateSource) : null;
+
+  const velGates = p.rows
+    .filter((r) => r.velocity !== null && r.velocity !== undefined && parsePosition(r.positionText) !== null && r.rawTime !== null)
+    .map((r) => ({ y: parsePosition(r.positionText)!, v: r.velocity!, t: r.rawTime!, label: r.label }))
+    .sort((a, b) => a.t - b.t);
+
+  const directTwoGate = velGates.length >= 2 ? (() => {
+    const g1 = velGates[0];
+    const g2 = velGates[velGates.length - 1];
+    const dy = Math.abs(g1.y - g2.y);
+    if (dy > 0.01) {
+      const gVal = Math.abs(g2.v * g2.v - g1.v * g1.v) / (2 * dy);
+      return { g1, g2, dy, gVal };
+    }
+    return null;
+  })() : null;
 
   return (
     <div className="collect">
@@ -185,10 +203,10 @@ export function Collect(p: Props) {
                           {msg && text.trim() !== '' && <div className="field-msg">{msg}</div>}
                         </td>
                         <td className={stStatus.time === null ? 'time pending' : 'time'}>
-                          {stStatus.time === null ? 'waiting…' : fmt(stStatus.time, 3)}
+                          {stStatus.time === null ? 'waiting…' : fmt(stStatus.time, 4)}
                           {stStatus.time !== null && (
                             <div className="beam-times">
-                              beams: {members.map((m) => (m.rawTime === null ? '—' : fmt(m.rawTime - t0, 3))).join(' / ')} s
+                              beams: {members.map((m) => (m.rawTime === null ? '—' : fmt(m.rawTime - t0, 4))).join(' / ')} s{st.velocity !== null && st.velocity !== undefined && <> · v = {fmt(st.velocity, 3)} m/s</>}
                             </div>
                           )}
                         </td>
@@ -253,7 +271,12 @@ export function Collect(p: Props) {
                         />
                         {heightProblem && r.positionText.trim() !== '' && <div className="field-msg">{heightProblem}</div>}
                       </td>
-                      <td className={s.time === null ? 'time pending' : 'time'}>{s.time === null ? 'waiting…' : fmt(s.time, 3)}</td>
+                      <td className={s.time === null ? "time pending" : "time"}>
+                        {s.time === null ? "waiting…" : fmt(s.time, 4)}
+                        {r.velocity !== null && r.velocity !== undefined && s.time !== null && (
+                          <div className="beam-times">v = {fmt(r.velocity, 3)} m/s</div>
+                        )}
+                      </td>
                       <td>
                         {p.mode !== 'example' && (
                           <button className="btn btn-icon" aria-label={`Remove ${r.label}`} onClick={() => p.onRemoveGate(r.gateId)}>
@@ -294,6 +317,11 @@ export function Collect(p: Props) {
                     Restart drop (keep heights)
                   </button>
                 )}
+                {p.onCopyStandHeights && (
+                  <button className="btn" onClick={p.onCopyStandHeights} title="Set table heights to match current gate positions on the ruler">
+                    Copy heights from ruler
+                  </button>
+                )}
                 <button className="btn" onClick={p.onAddGate}>
                   {p.mode === 'vernier' ? 'Connect a photogate' : 'Add gate'}
                 </button>
@@ -309,7 +337,18 @@ export function Collect(p: Props) {
               Export CSV
             </button>
           </div>
-          {p.rows.length > 0 && p.rows.length < 2 && p.mode !== 'example' && <p className="hint">You need at least 2 gates.</p>}
+          {p.rows.length > 0 && p.rows.length < 2 && p.mode !== "example" && <p className="hint">You need at least 2 gates.</p>}
+          {directTwoGate && (
+            <div className="callout good" style={{ marginTop: "12px" }}>
+              <strong>Direct 2-gate measurement (1 µs beam timing):</strong>
+              <div>
+                {directTwoGate.g1.label}: <i>v</i>₁ = {fmt(directTwoGate.g1.v, 3)} m/s at {fmt(directTwoGate.g1.y, 3)} m · {directTwoGate.g2.label}: <i>v</i>₂ = {fmt(directTwoGate.g2.v, 3)} m/s at {fmt(directTwoGate.g2.y, 3)} m
+              </div>
+              <div style={{ marginTop: "4px" }}>
+                <i>g</i> = |<i>v</i>₂² − <i>v</i>₁²| / (2·Δ<i>y</i>) = <strong className="result">{fmt(directTwoGate.gVal, 2)} m/s²</strong> ({fmt(percentDifference(directTwoGate.gVal), 1)}% from 9.81 m/s²)
+              </div>
+            </div>
+          )}
 
           {p.mode !== 'example' && (
             <div className="saved-box">

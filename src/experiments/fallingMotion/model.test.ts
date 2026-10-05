@@ -76,8 +76,10 @@ describe('stationRows (two-beam photogates → one station each)', () => {
     const st = stationRows([beam('a1', 'A', 0.30), beam('a2', 'A', 0.32), beam('b1', 'B', 0.50), beam('b2', 'B', 0.52)], { A: '0.900', B: '0.500' });
     expect(st).toHaveLength(2);
     expect(st[0]).toMatchObject({ gateId: 'A', positionText: '0.900' });
-    expect(st[0].rawTime).toBeCloseTo(0.31, 12);
-    expect(st[1].rawTime).toBeCloseTo(0.51, 12);
+    // Kinematic crease time accounts for acceleration across the 2 cm dual-beam gap
+    expect(st[0].rawTime).toBeCloseTo(0.310489, 4);
+    expect(st[0].velocity).toBeCloseTo(1.0, 2);
+    expect(st[1].rawTime).toBeCloseTo(0.510489, 4);
   });
   it('is not timed until every beam has fired, and does not depend on beam order', () => {
     expect(stationRows([beam('a1', 'A', 0.3), beam('a2', 'A', null)], { A: '0.9' })[0].rawTime).toBeNull();
@@ -89,7 +91,12 @@ describe('stationRows (two-beam photogates → one station each)', () => {
     expect(stationRows([row('x', '0.5', 1)], {})[0].positionText).toBe('0.5');
     expect(stationRows([beam('a1', 'A', 1), beam('a2', 'A', 1)], { A: 'abc' })[0].positionText).toBe('abc');
   });
-  it('two photogates are two usable stations, which is not yet enough for a quadratic', () => {
+  it("computes gate velocity from the 1 µs dual beam difference", () => {
+    const st = stationRows([beam("a1", "A", 0.100), beam("a2", "A", 0.110)], { A: "1.000" });
+    expect(st[0].velocity).toBeCloseTo(2.0, 2); // 0.02 m / 0.010 s = 2.0 m/s
+  });
+
+  it("two photogates are two usable stations, which is not yet enough for a quadratic", () => {
     const st = stationRows([beam('a1', 'A', 0.2), beam('a2', 'A', 0.21), beam('b1', 'B', 0.35), beam('b2', 'B', 0.36)], { A: '0.900', B: '0.500' });
     expect(measurements(st)).toHaveLength(2);
     expect(readiness(st).complete).toBe(false);

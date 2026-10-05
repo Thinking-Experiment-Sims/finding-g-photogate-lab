@@ -23,7 +23,7 @@ export type SourceEvent =
   | { type: 'blocked'; gateId: string; time: number; receiveTime?: number }
   | { type: 'beam'; gateId: string; beam: GateInfo['beam'] }
   /** A firmware-computed value from the photogate itself (timed in the gate at 1 µs), e.g. Object Velocity. */
-  | { type: 'object'; kind: 'velocity' | 'acceleration'; value: number; time: number; receiveTime?: number }
+  | { type: 'object'; kind: 'velocity' | 'acceleration'; value: number; time: number; receiveTime?: number; deviceId?: string }
   | { type: 'error'; message: string };
 
 /** Hardware timing options (Vernier source only). */

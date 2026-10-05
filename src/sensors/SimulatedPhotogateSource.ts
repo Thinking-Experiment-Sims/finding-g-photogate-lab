@@ -1,7 +1,7 @@
 import type { GateInfo, PhotogateSource, SourceEvent } from './types';
 
 export const SIM_G = 9.81; // true value used by the simulation (hidden from the analysis)
-export const SIM_TIMING_NOISE = 0.0008; // s, 1σ gate timing jitter
+export const SIM_TIMING_NOISE = 0.00005; // s, 1σ gate timing jitter (50 µs, high-precision photogate)
 export const SIM_RELEASE_HEIGHT = 1.3; // m above the table; the object is dropped from rest here
 export const SIM_MIN_HEIGHT = 0.1;
 export const SIM_MAX_HEIGHT = 1.25;
@@ -107,7 +107,9 @@ export class SimulatedPhotogateSource implements PhotogateSource {
         setTimeout(() => {
           if (!this.armed) return;
           g.beam = 'blocked';
+          const v = Math.sqrt(2 * SIM_G * Math.max(SIM_RELEASE_HEIGHT - g.truePosition, 0));
           this.emit({ type: 'blocked', gateId: g.id, time: t });
+          this.emit({ type: 'object', kind: 'velocity', value: v, time: t, deviceId: g.id });
           this.emit({ type: 'beam', gateId: g.id, beam: 'blocked' });
           this.clearTimers.push(
             setTimeout(() => {

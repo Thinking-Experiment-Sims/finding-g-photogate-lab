@@ -38,6 +38,7 @@ export default function App() {
   const [showFit, setShowFit] = useState(false);
   const [records, setRecords] = useState<VelRecord[]>([]);
   const [lin, setLin] = useState<LinState>(FRESH_LIN);
+  const [velocities, setVelocities] = useState<Record<string, number>>({});
   const sourceRef = useRef<PhotogateSource | null>(null);
   const [, bump] = useState(0);
 
@@ -56,8 +57,15 @@ export default function App() {
   const onEvent = useCallback(
     (e: SourceEvent) => {
       if (e.type === 'gates') syncRows(e.gates);
-      else if (e.type === 'blocked') setRows((prev) => prev.map((r) => (r.gateId === e.gateId && r.rawTime === null ? { ...r, rawTime: e.time } : r)));
-      else if (e.type === 'beam') setBeams((b) => ({ ...b, [e.gateId]: e.beam }));
+      else if (e.type === "blocked") setRows((prev) => prev.map((r) => (r.gateId === e.gateId && r.rawTime === null ? { ...r, rawTime: e.time } : r)));
+      else if (e.type === "object" && e.kind === "velocity") {
+        const id = e.deviceId ?? "";
+        if (id) {
+          setVelocities((v) => ({ ...v, [id]: e.value }));
+          setRows((prev) => prev.map((r) => ((r.gateId === id || r.groupId === id) && !r.velocity ? { ...r, velocity: e.value } : r)));
+        }
+      }
+      else if (e.type === "beam") setBeams((b) => ({ ...b, [e.gateId]: e.beam }));
       else if (e.type === 'error') setError(e.message);
       bump((n) => n + 1);
     },
@@ -78,6 +86,7 @@ export default function App() {
     resetAnalysis();
     setCreases({});
     setSaved([]);
+    setVelocities({});
     setStep('collect');
     if (m === 'example') {
       setRows(exampleRows());
@@ -100,7 +109,7 @@ export default function App() {
 
   const src = sourceRef.current;
   // One station per photogate: crease height + mean of its two beam times. Ungrouped (simulated) gates are already stations.
-  const stations = useMemo(() => stationRows(rows, creases), [rows, creases]);
+  const stations = useMemo(() => stationRows(rows, creases, velocities), [rows, creases, velocities]);
   const currentPoints = useMemo(() => measurements(stations), [stations]);
   // The graphs use every kept drop plus the current one.
   const data: Datum[] = useMemo(
@@ -164,7 +173,7 @@ export default function App() {
     }
   };
 
-  const clearTimes = () => setRows((r) => r.map((x) => ({ ...x, rawTime: null })));
+  const clearTimes = () => { setRows((r) => r.map((x) => ({ ...x, rawTime: null, velocity: null }))); setVelocities({}); };
 
   /** Clear the heights and times but KEEP the connected gates (or the simulated stand). */
   const clearAll = () => {
@@ -198,6 +207,19 @@ export default function App() {
     setError(null);
     src?.arm();
     setArmed(true);
+  };
+
+  const copyStandHeights = () => {
+    if (mode === "simulated" && src instanceof SimulatedPhotogateSource) {
+      const stand = src.standGates();
+      setRows((prev) =>
+        prev.map((r) => {
+          const match = stand.find((g) => g.id === r.gateId);
+          return match ? { ...r, positionText: match.position.toFixed(3) } : r;
+        })
+      );
+      resetAnalysis();
+    }
   };
 
   const exportCsv = () => {
@@ -288,6 +310,7 @@ export default function App() {
               onAddGate={addGate}
               onRemoveGate={(id) => { src ? src.removeGate(id) : setRows((r) => r.filter((x) => x.gateId !== id)); resetAnalysis(); }}
               onStandMoved={() => { clearTimes(); resetAnalysis(); }}
+              onCopyStandHeights={mode === 'simulated' ? copyStandHeights : undefined}
               onSort={sortRows}
               onRefresh={() => bump((n) => n + 1)}
               onArm={arm}
