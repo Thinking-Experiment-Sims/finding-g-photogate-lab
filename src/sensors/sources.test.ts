@@ -82,6 +82,10 @@ describe('isBeamChannel (Vernier channel names)', () => {
     expect(isBeamChannel('Gate 1 – Gate State')).toBe(true);
     expect(isBeamChannel('Gate 2 - Gate State')).toBe(true);
     expect(isBeamChannel(' Gate 2 — Gate State ')).toBe(true);
+    expect(isBeamChannel('Gate 1')).toBe(true);
+    expect(isBeamChannel('Gate 2')).toBe(true);
+    expect(isBeamChannel('Photogate 1')).toBe(true);
+    expect(isBeamChannel('Photogate 2')).toBe(true);
   });
   it('rejects remote/laser gates, timing and object channels', () => {
     for (const n of ['Laser Gate – Gate State', 'Gate 1/Remote Gate – Timing', 'Laser Gate/Remote Gate – Timing', 'Remote Gate – Object Velocity', 'Object Velocity', 'Object Acceleration', 'Gate 3 – Gate State']) {

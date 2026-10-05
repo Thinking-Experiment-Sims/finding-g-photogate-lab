@@ -98,12 +98,19 @@ export function Collect(p: Props) {
           <h2>{sim ? '2 · Record, then drop' : 'Gate data'}</h2>
 
           {p.mode === 'vernier' && (
-            <div className="callout">
+            <div className="callout" style={{ borderLeft: '4px solid var(--teal)' }}>
               {webBluetoothSupported() ? (
                 <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '8px' }}>
+                    <strong>Vernier Go Direct Photogates (Bluetooth)</strong>
+                    <button className="btn btn-accent" onClick={p.onAddGate} style={{ padding: '6px 14px', fontWeight: 600 }}>
+                      + Connect a photogate
+                    </button>
+                  </div>
                   <p>
-                    Turn on each photogate, then press <strong>Connect a photogate</strong> once per gate. <strong>Block a gate with your hand</strong> — its row
-                    below lights up, so you know which height belongs to which row.
+                    1. <strong>Turn on each photogate:</strong> ensure the power LED is flashing red/green (ready to pair, not connected elsewhere).<br/>
+                    2. Click <strong>+ Connect a photogate</strong> above to pair each gate in Chrome (device names start with <strong>GDX-</strong>).<br/>
+                    3. <strong>Wave your hand through each photogate</strong>: its row indicator lights up below so you can identify Gate 1 vs. Gate 2.
                   </p>
                 </>
               ) : (
@@ -112,11 +119,7 @@ export function Collect(p: Props) {
                 </p>
               )}
               <p>
-                <strong>Tip for accuracy:</strong> before your first drop, wave your hand through each photogate about 5 times. The gates have separate clocks, and every event helps the app line them up.
-              </p>
-              <p>
-                <strong>What height do I measure?</strong> Each photogate has two beams about 2 cm apart. Measure the height of the <strong>crease between the two beams</strong> (the
-                center line of the gate) up from the table, and enter that one number for the gate.
+                <strong>What height do I measure?</strong> Each photogate has two internal beams about 2 cm apart. Measure the height of the <strong>crease between the two beams</strong> (the center line of the gate) up from the table, and enter that one number for the gate.
               </p>
             </div>
           )}
@@ -244,7 +247,16 @@ export function Collect(p: Props) {
                 {p.rows.length === 0 && (
                   <tr>
                     <td colSpan={4} className="empty">
-                      {p.mode === 'vernier' ? 'No photogates connected yet.' : 'No gates yet. Add a gate.'}
+                      {p.mode === 'vernier' ? (
+                        <div style={{ padding: '14px 0' }}>
+                          <p style={{ margin: '0 0 10px 0' }}>No photogates connected yet.</p>
+                          <button className="btn btn-accent" onClick={p.onAddGate}>
+                            + Connect a photogate
+                          </button>
+                        </div>
+                      ) : (
+                        'No gates yet. Add a gate.'
+                      )}
                     </td>
                   </tr>
                 )}
@@ -322,8 +334,8 @@ export function Collect(p: Props) {
                     Copy heights from ruler
                   </button>
                 )}
-                <button className="btn" onClick={p.onAddGate}>
-                  {p.mode === 'vernier' ? 'Connect a photogate' : 'Add gate'}
+                <button className={p.mode === 'vernier' ? 'btn btn-accent' : 'btn'} onClick={p.onAddGate}>
+                  {p.mode === 'vernier' ? '+ Connect a photogate' : 'Add gate'}
                 </button>
                 {!grouped && <button className="btn" disabled={p.rows.length < 2} onClick={p.onSort} title="Order rows from the highest gate to the lowest">
                   Sort top → bottom
