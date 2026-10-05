@@ -206,3 +206,6 @@ i { font-family: 'IBM Plex Sans', serif; }
 .unit { font-size: 0.8em; color: var(--body); }
 
 .steps-list { padding-left: 22px; } .steps-list li { margin: 12px 0; }
+
+.teacher-form { display: inline-block; text-align: left; }
+.teacher-form input { min-height: 44px; padding: 0 10px; border: 1px solid var(--border, #c8dbe3); border-radius: 8px; font: inherit; }

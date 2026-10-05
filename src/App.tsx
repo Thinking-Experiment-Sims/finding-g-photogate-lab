@@ -10,6 +10,7 @@ import { Linearize } from './steps/Linearize';
 import { Position } from './steps/Position';
 import { Velocity } from './steps/Velocity';
 import { FenceCheck } from './steps/FenceCheck';
+import { TeacherLock } from './components/TeacherLock';
 import { STRAIGHT_R2, type Datum, type LinState, type VelRecord } from './steps/types';
 
 type Step = 'collect' | 'position' | 'velocity' | 'linearize' | 'compare';
@@ -21,10 +22,21 @@ const STEPS: { id: Step; label: string }[] = [
   { id: 'compare', label: 'Compare g' },
 ];
 
+const TEACHER_KEY = 'tte-teacher-mode';
+const readTeacher = () => {
+  try {
+    return sessionStorage.getItem(TEACHER_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
 const FRESH_LIN: LinState = { xT: 't2', yT: 'y', fitShown: false, k: null, hint: 0 };
 
 export default function App() {
   const [mode, setMode] = useState<Mode | null>(null);
+  /** Teacher mode unlocks the Linearize step (method 3). Students see the other two methods. */
+  const [teacher, setTeacher] = useState(readTeacher);
   const [checking, setChecking] = useState(false);
   const [rows, setRows] = useState<GateRow[]>([]);
   /** One crease height (text) per two-beam photogate, keyed by device id. */
@@ -132,12 +144,23 @@ export default function App() {
   const fit = useMemo(() => fitPosition(data), [data]);
   const dataLabel = mode === 'vernier' ? 'Vernier Go Direct Photogates (experimental)' : 'Simulated data';
 
+  const steps = teacher ? STEPS : STEPS.filter((s) => s.id !== 'linearize');
+  const setTeacherMode = (on: boolean) => {
+    setTeacher(on);
+    try {
+      sessionStorage.setItem(TEACHER_KEY, on ? '1' : '0');
+    } catch {
+      /* private window: mode just lasts until reload */
+    }
+    if (!on && step === 'linearize') setStep('compare');
+  };
+
   const estimates: Estimate[] = useMemo(() => {
     const vf = velocityFit(records);
     const lf = linearizedFit(data, lin.xT, lin.yT);
     const straight = lf.ok && lf.value.r2 >= STRAIGHT_R2;
     const valid = linearizationValid(data, lin.xT, lin.yT);
-    return [
+    const all: Estimate[] = [
       {
         key: 'quad',
         method: '1 · Quadratic fit',
@@ -161,7 +184,8 @@ export default function App() {
         note: lf.ok && lin.k !== null && !(straight && valid) ? (straight ? 'Check: this graph’s slope is not a/2 for your drop' : `Check: graph not straight (R² = ${lf.value.r2.toFixed(3)})`) : undefined,
       },
     ];
-  }, [fit, records, data, lin]);
+    return teacher ? all : all.filter((e) => e.key !== 'lin');
+  }, [fit, records, data, lin, teacher]);
 
   const addGate = async () => {
     setError(null);
@@ -245,7 +269,7 @@ export default function App() {
       <header className={mode === null ? 'hero' : 'hero compact'}>
         <a className="brand" href="https://thinking-experiment-sims.github.io/interactive-physics/">← The Thinking Experiment</a>
         <h1>Falling Motion — Photogates</h1>
-        <p className="subtitle">Measure the acceleration of gravity three ways: from a curve fit, from tangent-line velocities, and from a straightened graph.</p>
+        <p className="subtitle">{teacher ? 'Measure the acceleration of gravity three ways: from a curve fit, from tangent-line velocities, and from a straightened graph.' : 'Measure the acceleration of gravity two ways: from a curve fit and from tangent-line velocities.'}</p>
       </header>
 
       {checking ? (
@@ -276,7 +300,7 @@ export default function App() {
       ) : (
         <>
           <nav className="stepper" aria-label="Experiment steps">
-            {STEPS.map((s, i) => (
+            {steps.map((s, i) => (
               <button
                 key={s.id}
                 className={s.id === step ? 'step on' : 'step'}
@@ -323,14 +347,14 @@ export default function App() {
           )}
           {step === 'position' && <Position data={data} fit={fit} showFit={showFit} onToggleFit={() => setShowFit((s) => !s)} onNext={() => goto('velocity')} />}
           {step === 'velocity' && fit.ok && (
-            <Velocity data={data} fit={fit.value} records={records} setRecords={setRecords} onNext={() => goto('linearize')} />
+            <Velocity data={data} fit={fit.value} records={records} setRecords={setRecords} onNext={() => goto(teacher ? 'linearize' : 'compare')} />
           )}
           {step === 'velocity' && !fit.ok && <div className="card"><div className="callout warn">{fit.reason}</div></div>}
-          {step === 'linearize' && <Linearize data={data} lin={lin} setLin={setLin} onNext={() => goto('compare')} />}
+          {step === 'linearize' && teacher && <Linearize data={data} lin={lin} setLin={setLin} onNext={() => goto('compare')} />}
           {step === 'compare' && <Compare estimates={estimates} onExport={exportCsv} />}
         </>
       )}
-      <footer className="foot">The Thinking Experiment · {dataLabel === 'Simulated data' ? 'Simulated data is labeled wherever it appears.' : 'Hardware mode is experimental.'}</footer>
+      <footer className="foot">The Thinking Experiment · {dataLabel === 'Simulated data' ? 'Simulated data is labeled wherever it appears.' : 'Hardware mode is experimental.'} · <TeacherLock teacher={teacher} onChange={setTeacherMode} /></footer>
     </div>
   );
 }

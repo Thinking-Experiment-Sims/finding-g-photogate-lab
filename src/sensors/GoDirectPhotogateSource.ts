@@ -8,6 +8,7 @@ import type { GateInfo, PhotogateSource, SourceEvent, SourceOptions } from './ty
 
 /** Go Direct Photogate service + name prefix, as used in Vernier's own gdx_photogate.html example. */
 const GDX_SERVICE = 'd91714ef-28b9-4f91-ba16-f0d9a604f112';
+const GATE_NAME_PREFIX = 'GDX-VPG';
 /** Sensor channel 4 = "Gate 1" state in Vernier's example: value 1 = blocked, 0 = clear. Used only if no gate sensors are found by name. */
 const GATE_1_CHANNEL = 4;
 /** A Go Direct Photogate has two beams. We find them by sensor name ("Gate 1", "Gate 2") so we do not hard-code channel numbers. */
@@ -106,18 +107,12 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     }
     // requestDevice must run while the click's user activation is still valid, so it comes BEFORE the (lazy) library import.
     const ble = await bluetooth()!.requestDevice({
-      filters: [
-        { services: [GDX_SERVICE] },
-        { namePrefix: 'GDX' },
-        { namePrefix: 'Go Direct' },
-        { namePrefix: 'Vernier' },
-      ],
+      filters: [{ namePrefix: GATE_NAME_PREFIX }],
       optionalServices: [GDX_SERVICE],
     });
     if (this.beams.some((b) => b.deviceId === ble.id)) return; // already added
     const { default: godirect } = await import('@vernier/godirect');
-    // Open without starting measurements immediately to configure channels safely without concurrent GATT writes
-    const device = (await (godirect as unknown as { createDevice: (d: unknown, opts?: unknown) => Promise<unknown> }).createDevice(ble, { open: true, startMeasurements: false })) as unknown as GdxDevice;
+    const device = (await godirect.createDevice(ble)) as unknown as GdxDevice;
     const devName = device.name || ble.name || 'Photogate';
 
     this.diag.push(`${devName}: channels ${device.sensors.map((s) => `${s.number}="${s.name}"${s.unit ? ` (${s.unit})` : ''} [${s.specs?.measurementInfo?.mode === 1 ? 'event-based' : 'fixed-rate'}]`).join(', ') || '(none reported)'}`);
@@ -140,15 +135,8 @@ export class GoDirectPhotogateSource implements PhotogateSource {
     const added: Beam[] = gateSensors.map((sensor) => {
       const m = GATE_NAME.exec(sensor.name.trim());
       const label = `${devName} · beam ${m ? m[1] : sensor.number}`;
-      return { info: { id: `${ble.id}#${sensor.number}`, label, beam: 'unknown' as const }, deviceId: ble.id, device, sensor, armedClear: true };
+      return { info: { id: `${ble.id}#${sensor.number}`, label, beam: 'unknown' as const }, deviceId: ble.id, device, sensor, armedClear: false };
     });
-
-    // Disable non-gate sensors so they do not produce unneeded BLE packets
-    for (const s of device.sensors) {
-      if (!gateSensors.includes(s)) {
-        (s as unknown as { enabled?: boolean }).enabled = false;
-      }
-    }
 
     for (const beam of added) {
       beam.sensor.setEnabled(true);
@@ -166,13 +154,6 @@ export class GoDirectPhotogateSource implements PhotogateSource {
       this.emit({ type: 'gates', gates: this.gates() });
     });
     this.beams.push(...added);
-
-    // Safely start measurements on the device now that channels are configured
-    try {
-      await device.start();
-    } catch (e) {
-      this.diag.push(`${devName}: device.start() error: ${e instanceof Error ? e.message : String(e)}`);
-    }
 
     if (this.objectChannels) this.enableObjectChannels(device, devName);
     this.emit({ type: 'gates', gates: this.gates() });
@@ -286,7 +267,7 @@ export class GoDirectPhotogateSource implements PhotogateSource {
   arm() {
     this.clockZero = performance.now() / 1000;
     this.eventLog = [];
-    this.beams.forEach((b) => (b.armedClear = b.info.beam !== 'blocked'));
+    this.beams.forEach((b) => (b.armedClear = b.info.beam === 'clear'));
     this.armed = true;
   }
 
