@@ -29,12 +29,11 @@ describe('SimulatedPhotogateSource', () => {
     s.subscribe((e) => e.type === 'blocked' && blocked.push(e.gateId));
     s.arm();
     expect(s.drop()).toBe(true);
-    vi.advanceTimersByTime(200); // gate 1 fires at ≈156 ms; its beam is blocked for 150 ms
-    expect(blocked).toHaveLength(1);
-    expect(s.gates()[0].beam).toBe('blocked');
+    vi.advanceTimersByTime(200); // gate 1 (both beam 1 & 2) fires around 156-169 ms
+    expect(blocked).toHaveLength(2);
     s.disarm(); // the app disarms as soon as the last gate fires — simulate that mid-flash
     vi.advanceTimersByTime(2000);
-    expect(blocked).toHaveLength(1); // later gates never fire after disarm
+    expect(blocked).toHaveLength(2); // later gates never fire after disarm
     expect(s.gates().every((g) => g.beam === 'clear')).toBe(true); // …and nothing is stuck blocked
   });
 
@@ -47,32 +46,33 @@ describe('SimulatedPhotogateSource', () => {
     vi.advanceTimersByTime(200); // gate 1 has fired; the rest are pending
     s.arm(); // restart
     vi.advanceTimersByTime(3000);
-    expect(blocked).toHaveLength(1); // nothing from the old drop arrives after the restart
+    expect(blocked).toHaveLength(2); // nothing from the old drop arrives after the restart
   });
 
-  it('reports every gate in height order when allowed to finish', () => {
+  it('reports every gate beam in height order when allowed to finish', () => {
     const s = new SimulatedPhotogateSource();
     const times: number[] = [];
     s.subscribe((e) => e.type === 'blocked' && times.push(e.time));
     s.arm();
     s.drop();
     vi.advanceTimersByTime(2000);
-    expect(times).toHaveLength(5);
+    expect(times).toHaveLength(8); // 4 dual-beam gates = 8 beam events
     expect([...times].sort((a, b) => a - b)).toEqual(times);
     expect(s.gates().every((g) => g.beam === 'clear')).toBe(true);
   });
 
   it('adds, moves (clamped) and removes gates', () => {
     const s = new SimulatedPhotogateSource();
+    expect(s.gates()).toHaveLength(8);
     void s.addGate();
-    expect(s.gates()).toHaveLength(6);
+    expect(s.gates()).toHaveLength(10); // 5 gates * 2 beams = 10
     const id = s.gates()[0].id;
     s.moveGate(id, 99);
     expect(s.standGates()[0].position).toBeLessThanOrEqual(1.25);
     s.moveGate(id, NaN);
     expect(Number.isFinite(s.standGates()[0].position)).toBe(true);
     s.removeGate(id);
-    expect(s.gates()).toHaveLength(5);
+    expect(s.gates()).toHaveLength(8);
   });
 });
 

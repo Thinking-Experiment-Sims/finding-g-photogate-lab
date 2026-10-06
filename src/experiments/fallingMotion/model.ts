@@ -1,6 +1,6 @@
-import { DEFAULT_SIM_HEIGHTS, simulatedArrivalTime } from '../../sensors/SimulatedPhotogateSource';
+import { DEFAULT_SIM_HEIGHTS, simulatedArrivalTime, BEAM_SPACING } from '../../sensors/SimulatedPhotogateSource';
 
-/** One row of the data table: a gate, the height the student typed, and the raw time the gate reported. */
+/** One row of the data table: a gate beam, the height the student typed or derived, and the raw time the gate reported. */
 export interface GateRow {
   gateId: string;
   label: string;
@@ -8,13 +8,12 @@ export interface GateRow {
   positionText: string;
   /** Time on the source's clock, seconds. null until the gate fires. */
   rawTime: number | null;
-  /** Set for the beams of a two-beam photogate: the device id. Heights for these rows are derived, not typed. */
+  /** Set for the beams of a two-beam photogate: the device id. */
   groupId?: string;
   groupLabel?: string;
   /** Instantaneous speed measured at this gate, m/s (from 1 µs dual-beam timing or firmware). */
   velocity?: number | null;
 }
-
 
 export interface PhotogateMeasurement {
   gateId: string;
@@ -37,6 +36,7 @@ export function parsePosition(text: string): number | null {
   return Number.isFinite(v) ? v : null;
 }
 
+/** Relative times measured from the very first beam that fired (first beam has t = 0). */
 export const relativeTimes = (rows: GateRow[]): Map<string, number> => {
   const fired = rows.filter((r) => r.rawTime !== null && Number.isFinite(r.rawTime));
   const out = new Map<string, number>();
@@ -53,11 +53,11 @@ export function rowStatuses(rows: GateRow[]): RowStatus[] {
     const position = parsed[i];
     const time = times.get(r.gateId) ?? null;
     const problems: string[] = [];
-    if (r.positionText.trim() === '') problems.push('Enter this gate’s height.');
+    if (r.positionText.trim() === '') problems.push('Enter this beam’s height.');
     else if (position === null) problems.push('Height must be a number, like 0.452.');
     else if (position < 0) problems.push('Height is negative — measure up from the table.');
     else if (parsed.some((p, j) => j !== i && p !== null && Math.abs(p - position) < 1e-9)) {
-      problems.push('Another gate has this same height.');
+      problems.push('Another beam has this same height.');
     }
     if (time === null) problems.push('No time yet.');
     return { gateId: r.gateId, position, time, problems };
@@ -88,8 +88,7 @@ export function readiness(rows: GateRow[]): { complete: boolean; missingPosition
 const csvEscape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 /**
- * CSV of the measurements. Row 1 is the header the spec names (gate, position_m, time_s); position_m is the height above the table.
- * data_source keeps simulated data labeled after it leaves the app; drop numbers the kept drops (the current drop is last).
+ * CSV of the measurements. Row 1 is the header (point, photogate_beam, height_m, time_s, data_source, drop).
  */
 export function toCsv(points: { label: string; y: number; t: number; drop: number }[], dataLabel: string): string {
   const lines = ['gate,position_m,time_s,data_source,drop'];
@@ -100,31 +99,62 @@ export function toCsv(points: { label: string; y: number; t: number; drop: numbe
   return lines.join('\n') + '\n';
 }
 
-/** Teacher/demo data. Heights are read to the nearest mm like a careful ruler; times carry noise. */
+/** Format table for lab reports in Markdown. */
+export function toMarkdownTable(points: { label: string; y: number; t: number }[]): string {
+  const lines = [
+    '| Point | Photogate & Beam | Height y (m) | Time t (s) |',
+    '| :---: | :--- | :---: | :---: |',
+  ];
+  points.forEach((p, i) => {
+    if (Number.isFinite(p.y) && Number.isFinite(p.t)) {
+      lines.push(`| ${i + 1} | ${p.label} | ${p.y.toFixed(4)} | ${p.t.toFixed(5)} |`);
+    }
+  });
+  return lines.join('\n');
+}
+
+/** Teacher/demo data. Each photogate has Beam 1 and Beam 2 (2 cm apart), giving 8 distinct points. */
 export function exampleRows(rand: () => number = Math.random): GateRow[] {
-  return DEFAULT_SIM_HEIGHTS.map((p, i) => ({
-    gateId: `example-${i + 1}`,
-    label: `Gate ${i + 1}`,
-    positionText: p.toFixed(3),
-    rawTime: simulatedArrivalTime(p, rand),
-    velocity: Math.sqrt(2 * 9.81 * Math.max(1.3 - p, 0)),
-  }));
+  const out: GateRow[] = [];
+  DEFAULT_SIM_HEIGHTS.forEach((p, i) => {
+    const gId = `example-${i + 1}`;
+    const gLabel = `Gate ${i + 1}`;
+    const y1 = p;
+    const y2 = p - BEAM_SPACING;
+    const t1 = simulatedArrivalTime(y1, rand);
+    const t2 = simulatedArrivalTime(y2, rand);
+    const dt = Math.max(t2 - t1, 0.0001);
+    const vel = BEAM_SPACING / dt;
+
+    out.push({
+      gateId: `${gId}-b1`,
+      label: `${gLabel} · Beam 1 (Top)`,
+      positionText: y1.toFixed(3),
+      rawTime: t1,
+      groupId: gId,
+      groupLabel: gLabel,
+      velocity: null,
+    });
+    out.push({
+      gateId: `${gId}-b2`,
+      label: `${gLabel} · Beam 2 (Bottom)`,
+      positionText: y2.toFixed(3),
+      rawTime: t2,
+      groupId: gId,
+      groupLabel: gLabel,
+      velocity: vel,
+    });
+  });
+  return out;
 }
 
 /**
- * Turns raw beam rows into one STATION per physical photogate: height = the crease height the student typed (halfway between the
- * two beams), time = the exact kinematic time at the crease.
- * Using the microsecond-timed beam arrival difference Δt = t2 - t1 and beam spacing d = 0.02 m:
- *   v_bar = d / Δt,  v1 = v_bar - 0.5 * g * Δt,  vc = √(v1² + g * d).
- * Crease arrival time: tc = t1 + d / (v1 + vc).
- * This eliminates the second-order midpoint non-linearity error that simple arithmetic mean (t1 + t2)/2 suffers from.
- * Also stores the ultra-accurate gate velocity v = 0.02 / Δt (1 µs resolution). Ungrouped rows pass through.
+ * Optional legacy helper to calculate crease station rows if needed.
  */
 export function stationRows(rows: GateRow[], creases: Record<string, string>, gateVelocities?: Record<string, number>): GateRow[] {
   const out: GateRow[] = [];
   const seen = new Set<string>();
   const g = 9.81;
-  const BEAM_SPACING = 0.02; // 2.0 cm between beams in Vernier Go Direct Photogate
 
   for (const r of rows) {
     if (!r.groupId) {

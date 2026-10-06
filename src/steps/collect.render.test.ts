@@ -2,34 +2,70 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Collect } from './Collect';
-import { stationRows, type GateRow } from '../experiments/fallingMotion/model';
+import type { GateRow } from '../experiments/fallingMotion/model';
 
-const beam = (id: string, g: string, t: number | null): GateRow => ({ gateId: id, label: id, positionText: '', rawTime: t, groupId: g, groupLabel: `GDX-VPG ${g}` });
+const beam = (id: string, g: string, label: string, pos: string, t: number | null): GateRow => ({
+  gateId: id,
+  label,
+  positionText: pos,
+  rawTime: t,
+  groupId: g,
+  groupLabel: `GDX-VPG ${g}`,
+});
 const noop = () => {};
 
-describe('Collect with two two-beam photogates', () => {
-  const raw = [beam('A#4', 'A', 0.2), beam('A#5', 'A', 0.203), beam('B#4', 'B', 0.31), beam('B#5', 'B', 0.312)];
-  const rows = stationRows(raw, { A: '0.900', B: '0.500' });
+describe('Collect with dual-beam photogates', () => {
+  const rows: GateRow[] = [
+    beam('A#4', 'A', 'GDX-VPG A · Beam 1 (Top)', '0.900', 0.200),
+    beam('A#5', 'A', 'GDX-VPG A · Beam 2 (Bottom)', '0.880', 0.210),
+    beam('B#4', 'B', 'GDX-VPG B · Beam 1 (Top)', '0.500', 0.310),
+    beam('B#5', 'B', 'GDX-VPG B · Beam 2 (Bottom)', '0.480', 0.318),
+  ];
+
   const html = renderToStaticMarkup(
     createElement(Collect, {
-      mode: 'vernier', source: null, rows, beamRows: raw, saved: [], onKeep: noop, onClearSaved: noop, analysisBlocker: null, creases: { A: '0.900', B: '0.500' }, beams: {}, armed: false, error: null,
-      onCrease: noop, onPosition: noop, onAddGate: noop, onRemoveGate: noop, onSort: noop, onRefresh: noop, onStandMoved: noop,
-      onArm: noop, onDrop: noop, onReset: noop, onExport: noop, onNext: noop, onChangeSource: noop,
+      mode: 'vernier',
+      source: null,
+      rows,
+      saved: [],
+      onKeep: noop,
+      onClearSaved: noop,
+      analysisBlocker: null,
+      beams: {},
+      armed: false,
+      error: null,
+      onPosition: noop,
+      onAddGate: noop,
+      onRemoveGate: noop,
+      onSort: noop,
+      onRefresh: noop,
+      onStandMoved: noop,
+      onArm: noop,
+      onDrop: noop,
+      onReset: noop,
+      onExport: noop,
+      onNext: noop,
+      onChangeSource: noop,
     }),
   );
-  it('shows one row per photogate with a crease-height input, not one per beam', () => {
-    expect(html.match(/crease height in meters/g)).toHaveLength(2);
-    expect(html).toContain('GDX-VPG A');
-    expect(html).toContain('GDX-VPG B');
-    expect(html).toMatch(/crease between the two beams/);
+
+  it('renders a row for each beam with point numbers for the student lab report', () => {
+    expect(html).toContain('Point');
+    expect(html).toContain('GDX-VPG A · Beam 1 (Top)');
+    expect(html).toContain('GDX-VPG A · Beam 2 (Bottom)');
+    expect(html).toContain('GDX-VPG B · Beam 1 (Top)');
+    expect(html).toContain('GDX-VPG B · Beam 2 (Bottom)');
+    expect(html).toContain('📋 Copy Table for Lab Report');
   });
-  it('shows each gate time (mean of its beams, 0 at the first gate), the beam times, and never NaN/Infinity', () => {
-    expect(html).toContain('0.000'); // first gate = t 0
-    expect(html).toContain('beams:');
+
+  it('references times to the first beam (t = 0.0000) and displays gate velocities', () => {
+    expect(html).toContain('0.0000'); // first beam trigger = 0
+    expect(html).toContain('m/s'); // gate velocity computed from 2 cm beam spacing
     expect(html).not.toMatch(/NaN|Infinity/);
   });
-  it('does not ask for more heights once both crease heights are entered, and offers to keep the drop', () => {
-    expect(html).not.toMatch(/Enter \d more/);
+
+  it('offers to keep the drop and continue analysis once all beams have heights', () => {
     expect(html).toContain('Keep this drop');
+    expect(html).toContain('Graph position vs. time');
   });
 });

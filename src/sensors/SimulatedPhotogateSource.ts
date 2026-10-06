@@ -5,11 +5,16 @@ export const SIM_TIMING_NOISE = 0.00005; // s, 1σ gate timing jitter (50 µs, h
 export const SIM_RELEASE_HEIGHT = 1.3; // m above the table; the object is dropped from rest here
 export const SIM_MIN_HEIGHT = 0.1;
 export const SIM_MAX_HEIGHT = 1.25;
-export const DEFAULT_SIM_HEIGHTS = [1.18, 1.04, 0.86, 0.64, 0.38]; // m above the table, top gate first
+export const BEAM_SPACING = 0.02; // 2.0 cm between internal beams on photogate
+export const DEFAULT_SIM_HEIGHTS = [1.18, 0.92, 0.66, 0.40]; // 4 dual-beam photogates = 8 distinct points
 
-interface SimGate extends GateInfo {
-  /** TRUE height above the table, m. Students must read it off the ruler. */
+export interface SimGate {
+  id: string;
+  label: string;
+  /** TRUE top beam (Beam 1) height above the table, m. Beam 2 is exactly truePosition - BEAM_SPACING. */
   truePosition: number;
+  beam1: 'clear' | 'blocked';
+  beam2: 'clear' | 'blocked';
 }
 
 /** Box–Muller normal sample. */
@@ -42,20 +47,50 @@ export class SimulatedPhotogateSource implements PhotogateSource {
 
   private makeGate(position: number): SimGate {
     const n = this.nextId++;
-    return { id: `sim-${n}`, label: `Gate ${n}`, beam: 'clear', truePosition: position };
+    return {
+      id: `sim-${n}`,
+      label: `Gate ${n}`,
+      truePosition: position,
+      beam1: 'clear',
+      beam2: 'clear',
+    };
   }
 
   private emit(e: SourceEvent) {
     this.listeners.forEach((l) => l(e));
   }
 
+  /** Returns both Beam 1 (Top) and Beam 2 (Bottom) for each physical photogate. */
   gates(): GateInfo[] {
-    return this.list.map(({ id, label, beam }) => ({ id, label, beam }));
+    const out: GateInfo[] = [];
+    for (const g of this.list) {
+      out.push({
+        id: `${g.id}-b1`,
+        label: `${g.label} · Beam 1 (Top)`,
+        beam: g.beam1,
+        group: g.id,
+        groupLabel: g.label,
+      });
+      out.push({
+        id: `${g.id}-b2`,
+        label: `${g.label} · Beam 2 (Bottom)`,
+        beam: g.beam2,
+        group: g.id,
+        groupLabel: g.label,
+      });
+    }
+    return out;
   }
 
   /** True stand geometry, for drawing the virtual stand and ruler. */
-  standGates(): { id: string; label: string; position: number }[] {
-    return this.list.map((g) => ({ id: g.id, label: g.label, position: g.truePosition }));
+  standGates(): { id: string; label: string; position: number; b1Position: number; b2Position: number }[] {
+    return this.list.map((g) => ({
+      id: g.id,
+      label: g.label,
+      position: g.truePosition,
+      b1Position: g.truePosition,
+      b2Position: g.truePosition - BEAM_SPACING,
+    }));
   }
 
   subscribe(listener: (e: SourceEvent) => void) {
@@ -65,19 +100,19 @@ export class SimulatedPhotogateSource implements PhotogateSource {
 
   async addGate() {
     const lowest = this.list.reduce((m, g) => Math.min(m, g.truePosition), SIM_MAX_HEIGHT);
-    this.list.push(this.makeGate(Math.max(lowest - 0.12, SIM_MIN_HEIGHT)));
+    this.list.push(this.makeGate(Math.max(lowest - 0.15, SIM_MIN_HEIGHT + BEAM_SPACING)));
     this.emit({ type: 'gates', gates: this.gates() });
   }
 
   removeGate(id: string) {
-    this.list = this.list.filter((g) => g.id !== id);
+    this.list = this.list.filter((g) => g.id !== id && `${g.id}-b1` !== id && `${g.id}-b2` !== id);
     this.emit({ type: 'gates', gates: this.gates() });
   }
 
   moveGate(id: string, position: number) {
-    const g = this.list.find((x) => x.id === id);
+    const g = this.list.find((x) => x.id === id || `${x.id}-b1` === id || `${x.id}-b2` === id);
     if (!g || !Number.isFinite(position)) return;
-    g.truePosition = Math.min(Math.max(position, SIM_MIN_HEIGHT), SIM_MAX_HEIGHT);
+    g.truePosition = Math.min(Math.max(position, SIM_MIN_HEIGHT + BEAM_SPACING), SIM_MAX_HEIGHT);
     this.emit({ type: 'gates', gates: this.gates() });
   }
 
@@ -96,28 +131,51 @@ export class SimulatedPhotogateSource implements PhotogateSource {
     this.timers = [];
   }
 
-  /** Release the object. Gate events arrive in real time, like a real drop. Returns false if not armed. */
+  /** Release the object. Both Beam 1 and Beam 2 events fire with realistic 2 cm interval timing. */
   drop(): boolean {
     if (!this.armed) return false;
     this.cancelTimers();
     this.lastDropStart = performance.now();
+
     for (const g of this.list) {
-      const t = simulatedArrivalTime(g.truePosition, this.rand);
+      const y1 = g.truePosition;
+      const y2 = g.truePosition - BEAM_SPACING;
+      const t1 = simulatedArrivalTime(y1, this.rand);
+      const t2 = simulatedArrivalTime(y2, this.rand);
+
+      // Beam 1 event
       this.timers.push(
         setTimeout(() => {
           if (!this.armed) return;
-          g.beam = 'blocked';
-          const v = Math.sqrt(2 * SIM_G * Math.max(SIM_RELEASE_HEIGHT - g.truePosition, 0));
-          this.emit({ type: 'blocked', gateId: g.id, time: t });
-          this.emit({ type: 'object', kind: 'velocity', value: v, time: t, deviceId: g.id });
-          this.emit({ type: 'beam', gateId: g.id, beam: 'blocked' });
+          g.beam1 = 'blocked';
+          this.emit({ type: 'blocked', gateId: `${g.id}-b1`, time: t1 });
+          this.emit({ type: 'beam', gateId: `${g.id}-b1`, beam: 'blocked' });
           this.clearTimers.push(
             setTimeout(() => {
-              g.beam = 'clear';
-              this.emit({ type: 'beam', gateId: g.id, beam: 'clear' });
+              g.beam1 = 'clear';
+              this.emit({ type: 'beam', gateId: `${g.id}-b1`, beam: 'clear' });
             }, 150),
           );
-        }, t * 1000),
+        }, t1 * 1000),
+      );
+
+      // Beam 2 event
+      this.timers.push(
+        setTimeout(() => {
+          if (!this.armed) return;
+          g.beam2 = 'blocked';
+          const dt = Math.max(t2 - t1, 0.0001);
+          const v = BEAM_SPACING / dt;
+          this.emit({ type: 'blocked', gateId: `${g.id}-b2`, time: t2 });
+          this.emit({ type: 'object', kind: 'velocity', value: v, time: t2, deviceId: g.id });
+          this.emit({ type: 'beam', gateId: `${g.id}-b2`, beam: 'blocked' });
+          this.clearTimers.push(
+            setTimeout(() => {
+              g.beam2 = 'clear';
+              this.emit({ type: 'beam', gateId: `${g.id}-b2`, beam: 'clear' });
+            }, 150),
+          );
+        }, t2 * 1000),
       );
     }
     return true;

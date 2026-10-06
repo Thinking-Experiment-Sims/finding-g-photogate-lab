@@ -14,8 +14,8 @@ const POLE_X = 190;
 const yPx = (h: number) => BOTTOM - h * PX_PER_M;
 const hOf = (py: number) => (BOTTOM - py) / PX_PER_M;
 
-/** Virtual drop stand with a ruler. Gates can be dragged; students read heights off the ruler. */
-export function Stand({ source, gates, beams, onMoved }: { source: SimulatedPhotogateSource; gates: GateInfo[]; beams: Record<string, GateInfo['beam']>; onMoved: () => void }) {
+/** Virtual drop stand with a ruler and dual-beam photogates. Gates can be dragged; students read heights off the ruler. */
+export function Stand({ source, beams, onMoved }: { source: SimulatedPhotogateSource; gates?: GateInfo[]; beams: Record<string, GateInfo['beam']>; onMoved: () => void }) {
   const svg = useRef<SVGSVGElement>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [ballH, setBallH] = useState(SIM_RELEASE_HEIGHT);
@@ -60,7 +60,7 @@ export function Stand({ source, gates, beams, onMoved }: { source: SimulatedPhot
   const mm5Ticks = Array.from({ length: Math.round(H_MAX * 200) + 1 }, (_, i) => i);
 
   return (
-    <svg ref={svg} className="stand" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Drop stand with a vertical ruler and photogates. Drag a gate to move it." style={{ touchAction: 'none' }}>
+    <svg ref={svg} className="stand" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Drop stand with a vertical ruler and dual-beam photogates. Drag a gate to move it." style={{ touchAction: 'none' }}>
       <rect x={0} y={0} width={W} height={H} className="stand-bg" />
       {/* table */}
       <rect x={20} y={BOTTOM} width={W - 40} height={14} className="stand-table" />
@@ -101,12 +101,18 @@ export function Stand({ source, gates, beams, onMoved }: { source: SimulatedPhot
       <text x={POLE_X + 36} y={yPx(SIM_RELEASE_HEIGHT) + 4} className="stand-small">
         release point
       </text>
-      {/* gates */}
+
+      {/* dual-beam photogates */}
       {stand.map((g) => {
-        const info = gates.find((x) => x.id === g.id);
-        const blocked = beams[g.id] === 'blocked';
         const isDragging = dragging === g.id;
-        const py = yPx(g.position);
+        const b1Pos = g.b1Position ?? g.position;
+        const b2Pos = g.b2Position ?? (g.position - 0.02);
+        const py1 = yPx(b1Pos);
+        const py2 = yPx(b2Pos);
+        const blocked1 = beams[`${g.id}-b1`] === 'blocked' || beams[g.id] === 'blocked';
+        const blocked2 = beams[`${g.id}-b2`] === 'blocked';
+        const bracketH = Math.max(py2 - py1 + 14, 22);
+
         return (
           <g
             key={g.id}
@@ -120,39 +126,72 @@ export function Stand({ source, gates, beams, onMoved }: { source: SimulatedPhot
             onPointerMove={(e) => dragging === g.id && move(e.clientY, g.id)}
             onPointerUp={() => setDragging(null)}
           >
-            {/* hairline sightline connecting beam across gap to ruler tick */}
+            {/* hairline sightline for Beam 1 */}
             <line
               x1={RULER_X + 6}
               x2={POLE_X - 48}
-              y1={py}
-              y2={py}
+              y1={py1}
+              y2={py1}
               className="stand-sightline"
               stroke={isDragging ? 'var(--amber)' : 'var(--teal)'}
               strokeWidth={isDragging ? 1.5 : 1}
-              strokeDasharray={isDragging ? 'none' : '3 3'}
-              opacity={isDragging ? 1 : 0.6}
+              strokeDasharray={isDragging ? 'none' : '2 2'}
+              opacity={isDragging ? 1 : 0.75}
             />
-            {/* pointer triangle at ruler tick */}
             <polygon
-              points={`${RULER_X + 6},${py} ${RULER_X + 11},${py - 3.5} ${RULER_X + 11},${py + 3.5}`}
+              points={`${RULER_X + 6},${py1} ${RULER_X + 11},${py1 - 3} ${RULER_X + 11},${py1 + 3}`}
               fill={isDragging ? 'var(--amber)' : 'var(--teal-dark)'}
             />
-            <rect x={POLE_X - 56} y={py - 16} width={150} height={32} fill="transparent" />
-            <rect x={POLE_X - 48} y={py - 7} width={96} height={14} rx={4} className="stand-gate-body" />
-            <line x1={POLE_X - 48} x2={POLE_X + 48} y1={py} y2={py} className={blocked ? 'stand-beam blocked' : 'stand-beam'} />
-            <text x={POLE_X + 54} y={py + 5} className="stand-gate-label">
-              {info?.label ?? g.label} <tspan fill={isDragging ? 'var(--amber)' : 'var(--teal-dark)'} fontWeight="700">· {g.position.toFixed(3)} m</tspan>
+
+            {/* hairline sightline for Beam 2 */}
+            <line
+              x1={RULER_X + 6}
+              x2={POLE_X - 48}
+              y1={py2}
+              y2={py2}
+              className="stand-sightline"
+              stroke={isDragging ? 'var(--amber)' : 'var(--teal)'}
+              strokeWidth={isDragging ? 1.5 : 1}
+              strokeDasharray={isDragging ? 'none' : '2 2'}
+              opacity={isDragging ? 1 : 0.55}
+            />
+            <polygon
+              points={`${RULER_X + 6},${py2} ${RULER_X + 10},${py2 - 2.5} ${RULER_X + 10},${py2 + 2.5}`}
+              fill={isDragging ? 'var(--amber)' : 'var(--teal)'}
+            />
+
+            {/* hit target for dragging */}
+            <rect x={POLE_X - 56} y={py1 - 12} width={160} height={bracketH + 24} fill="transparent" />
+
+            {/* photogate body spanning both beams */}
+            <rect x={POLE_X - 48} y={py1 - 6} width={96} height={bracketH} rx={4} className="stand-gate-body" />
+
+            {/* dual laser beams */}
+            <line x1={POLE_X - 48} x2={POLE_X + 48} y1={py1} y2={py1} className={blocked1 ? 'stand-beam blocked' : 'stand-beam'} />
+            <line x1={POLE_X - 48} x2={POLE_X + 48} y1={py2} y2={py2} className={blocked2 ? 'stand-beam blocked' : 'stand-beam'} />
+
+            {/* optical sensor indicator LEDs */}
+            <circle cx={POLE_X - 42} cy={py1} r={2.5} fill={blocked1 ? '#dc2626' : '#0f7e9b'} />
+            <circle cx={POLE_X - 42} cy={py2} r={2.5} fill={blocked2 ? '#dc2626' : '#0f7e9b'} />
+
+            {/* Labels showing Beam 1 and Beam 2 (2 cm apart) */}
+            <text x={POLE_X + 54} y={py1 + 2} className="stand-gate-label">
+              {g.label} · <tspan fill={isDragging ? 'var(--amber)' : 'var(--teal-dark)'} fontWeight="700">{b1Pos.toFixed(3)} m</tspan>
+            </text>
+            <text x={POLE_X + 54} y={py2 + 4} className="stand-gate-label" style={{ fontSize: '10.5px', fill: 'var(--body)' }}>
+              ↳ Beam 2: <tspan fontWeight="600">{b2Pos.toFixed(3)} m</tspan>
             </text>
           </g>
         );
       })}
+
       {/* object */}
       <circle cx={POLE_X} cy={yPx(ballH)} r={9} className="stand-ball" />
       <text x={W - 10} y={TOP - 10} textAnchor="end" className="stand-small">
-        Simulated stand
+        Simulated Stand (Dual-Beam)
       </text>
       <text x={W - 10} y={H - 6} textAnchor="end" className="stand-small">
-        Drag a gate, then read its height ({SIM_MIN_HEIGHT.toFixed(2)}–{SIM_MAX_HEIGHT.toFixed(2)} m)
+        Drag gate to position ({SIM_MIN_HEIGHT.toFixed(2)}–{SIM_MAX_HEIGHT.toFixed(2)} m)
       </text>
     </svg>
   );

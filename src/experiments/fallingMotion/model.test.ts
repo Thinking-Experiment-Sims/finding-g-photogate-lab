@@ -63,7 +63,7 @@ describe('CSV export', () => {
 describe('example experiment', () => {
   it('is analysed by the normal regression, not hard-coded (a ≈ −9.8 within noise)', () => {
     const m = measurements(exampleRows());
-    expect(m).toHaveLength(5);
+    expect(m).toHaveLength(8);
     const fit = fitPosition(m.map((d) => ({ t: d.time, y: d.position })));
     expect(fit.ok).toBe(true);
     if (fit.ok) expect(Math.abs(quadraticAcceleration(fit.value))).toBeGreaterThan(8.5), expect(quadraticAcceleration(fit.value)).toBeLessThan(-8.5);
