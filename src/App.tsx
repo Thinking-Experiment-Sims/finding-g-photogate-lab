@@ -33,6 +33,12 @@ const readTeacher = () => {
 
 const FRESH_LIN: LinState = { xT: 't2', yT: 'y', fitShown: false, k: null, hint: 0 };
 
+const MODE_BADGE: Record<Mode, string> = {
+  simulated: 'Simulated Drop',
+  vernier: 'Vernier Hardware',
+  example: 'Teacher Demo',
+};
+
 export default function App() {
   const [mode, setMode] = useState<Mode | null>(null);
   /** Teacher mode unlocks the Linearize step (method 3). Students see the other two methods. */
@@ -266,10 +272,30 @@ export default function App() {
 
   return (
     <div className="shell">
-      <header className={mode === null ? 'hero' : 'hero compact'}>
-        <a className="brand" href="https://thinking-experiment-sims.github.io/interactive-physics/">← The Thinking Experiment</a>
-        <h1>Falling Motion — Photogates</h1>
-        <p className="subtitle">{teacher ? 'Measure the acceleration of gravity three ways: from a curve fit, from tangent-line velocities, and from a straightened graph.' : 'Measure the acceleration of gravity two ways: from a curve fit and from tangent-line velocities.'}</p>
+      <header className="hero">
+        <div className="hero-top">
+          <div>
+            <div className="hero-badges">
+              <a className="brand-badge" href="https://thinking-experiment-sims.github.io/interactive-physics/" title="Return to Physics Simulations Hub">← The Thinking Experiment</a>
+              <span className="lab-badge">📐 Physics Lab Activity</span>
+              {mode && <span className="mode-badge">{MODE_BADGE[mode]}</span>}
+            </div>
+            <h1>Falling Motion — Photogates Lab</h1>
+            <p className="hero-subtitle">
+              {teacher
+                ? 'Measure the acceleration of gravity three ways: from a quadratic curve fit, from dual-beam tangent velocities, and from a linearized graph.'
+                : 'Measure the acceleration of gravity two ways: from a quadratic curve fit and from dual-beam tangent velocities.'}
+            </p>
+          </div>
+          <div className="hero-meta-badges">
+            <span className="meta-badge">Standard: <strong style={{ color: 'var(--teal)', fontFamily: "'JetBrains Mono', monospace" }}>g = 9.80 m/s²</strong></span>
+            {mode && (
+              <button className="btn btn-sm" onClick={() => { disposeSource(); setMode(null); setRows([]); }} title="Switch between simulated drop and Vernier photogates">
+                ← Change data source
+              </button>
+            )}
+          </div>
+        </div>
       </header>
 
       {checking ? (
