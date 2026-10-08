@@ -25,6 +25,8 @@ interface Props {
   onPosition: (gateId: string, text: string) => void;
   onAddGate: () => void;
   onRemoveGate: (gateId: string) => void;
+  onDisconnectAll?: () => void;
+  onMoveGate?: (groupId: string, direction: 'up' | 'down') => void;
   onSort: () => void;
   onRefresh: () => void;
   /** The stand geometry changed, so any recorded times no longer match the heights. */
@@ -76,7 +78,7 @@ export function Collect(p: Props) {
         const tStr = t !== null && t !== undefined ? t.toFixed(4) : '—';
         const yStr = r.positionText || '—';
         const v = gateVelocities[r.groupId ?? r.gateId];
-        const vStr = r.label.includes('Beam 2') && v ? v.toFixed(3) : '—';
+        const vStr = (r.gateId.endsWith('-b2') || r.label.includes('Beam 2')) && v ? v.toFixed(3) : '—';
         tsvLines.push(`${idx + 1}\t${r.label}\t${yStr}\t${tStr}\t${vStr}`);
       });
       await navigator.clipboard.writeText(tsvLines.join('\n'));
@@ -115,8 +117,18 @@ export function Collect(p: Props) {
       <div className="source-bar">
         <span className="badge">{p.mode === 'vernier' ? 'Hardware (experimental)' : 'Simulated data'}</span>
         <strong>{MODE_NAME[p.mode]}</strong>
+        {p.mode === 'vernier' && p.rows.length > 0 && p.onDisconnectAll && (
+          <button
+            className="btn btn-quiet"
+            style={{ color: 'var(--amber-dark)' }}
+            onClick={p.onDisconnectAll}
+            title="Disconnect all connected photogates"
+          >
+            Disconnect all photogates
+          </button>
+        )}
         <button className="btn btn-quiet" onClick={p.onChangeSource}>
-          {p.mode === 'vernier' ? 'Disconnect gates & change source' : 'Change data source'}
+          Change data source
         </button>
       </div>
 
@@ -136,7 +148,7 @@ export function Collect(p: Props) {
             <div>
               <h2>{sim ? '2 · Photogate Data & Lab Report Table' : 'Photogate Data & Lab Report Table'}</h2>
               <p className="hint" style={{ margin: '2px 0 0' }}>
-                Each photogate records <strong>two data points</strong> (Beam 1 &amp; Beam 2). Both points are plotted on your Position vs. Time graph.
+                Each photogate records <strong>two data points</strong> (Beam 1 &amp; Beam 2). Use the <strong>▲ / ▼</strong> buttons to re-order gates if they are out of sequence.
               </p>
             </div>
             <div className="actions" style={{ margin: 0 }}>
@@ -154,7 +166,7 @@ export function Collect(p: Props) {
                   <p>
                     1. <strong>Turn on each photogate:</strong> ensure the power LED is flashing red/green (ready to pair).<br/>
                     2. Click <strong>Connect a photogate</strong> below to pair each gate in Chrome (names start with <strong>GDX-VPG</strong>).<br/>
-                    3. <strong>Wave your hand through the photogate</strong>: both beam indicators light up below. Enter the height of Beam 1 (top beam); Beam 2 is automatically 2.0 cm below.
+                    3. <strong>Wave your hand through the photogate</strong>: both beam indicators light up below. If the physical order doesn't match the table, click <strong>▲ / ▼</strong> to re-arrange, or click <strong>↕ Sort by height</strong>.
                   </p>
                 </>
               ) : (
@@ -200,7 +212,10 @@ export function Collect(p: Props) {
                     Gate Velocity <i>v</i>
                     <span className="th-sub">v = 0.020 m / Δt</span>
                   </th>
-                  <th scope="col" className="sr-only">Remove</th>
+                  <th scope="col" style={{ width: '130px', textAlign: 'center' }}>
+                    Sequence &amp; Action
+                    <span className="th-sub">re-order or disconnect</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -219,6 +234,10 @@ export function Collect(p: Props) {
                   const gid = r.groupId ?? r.gateId;
                   const isBeam2 = r.gateId.endsWith('-b2') || r.label.includes('Beam 2');
                   const gateVel = gateVelocities[gid];
+
+                  const members = p.rows.filter((m) => (m.groupId ?? m.gateId) === gid);
+                  const isFirstInGate = members[0]?.gateId === r.gateId;
+                  const gateIdx = groupIds.indexOf(gid);
 
                   return (
                     <tr key={r.gateId} className={live ? 'live' : undefined}>
@@ -255,13 +274,43 @@ export function Collect(p: Props) {
                           <span style={{ color: 'var(--border)' }}>—</span>
                         )}
                       </td>
-                      <td>
-                        {p.mode !== 'example' && isBeam2 && (
-                          <button className="btn btn-icon" aria-label={`Remove photogate`} onClick={() => p.onRemoveGate(gid)}>
-                            ✕
-                          </button>
-                        )}
-                      </td>
+                      {isFirstInGate && (
+                        <td rowSpan={members.length} style={{ verticalAlign: 'middle', textAlign: 'center' }}>
+                          <div className="gate-actions-cell">
+                            <div className="reorder-btns">
+                              <button
+                                className="btn btn-icon btn-sm"
+                                disabled={gateIdx === 0}
+                                onClick={() => p.onMoveGate?.(gid, 'up')}
+                                title="Move this photogate up in sequence"
+                                aria-label={`Move ${r.groupLabel ?? 'photogate'} up`}
+                              >
+                                ▲
+                              </button>
+                              <button
+                                className="btn btn-icon btn-sm"
+                                disabled={gateIdx === groupIds.length - 1}
+                                onClick={() => p.onMoveGate?.(gid, 'down')}
+                                title="Move this photogate down in sequence"
+                                aria-label={`Move ${r.groupLabel ?? 'photogate'} down`}
+                              >
+                                ▼
+                              </button>
+                            </div>
+                            {p.mode !== 'example' && (
+                              <button
+                                className="btn btn-sm btn-ghost"
+                                style={{ fontSize: '11px', padding: '2px 8px', minHeight: '26px' }}
+                                onClick={() => p.onRemoveGate(gid)}
+                                title={p.mode === 'vernier' ? 'Disconnect this photogate' : 'Remove this photogate'}
+                                aria-label={`Disconnect ${r.groupLabel ?? 'photogate'}`}
+                              >
+                                {p.mode === 'vernier' ? 'Disconnect' : 'Remove'}
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -308,6 +357,25 @@ export function Collect(p: Props) {
                 )}
                 <button className={p.mode === 'vernier' ? 'btn btn-accent' : 'btn'} onClick={() => p.onAddGate()}>
                   {p.mode === 'vernier' ? 'Connect a photogate' : 'Add photogate'}
+                </button>
+                {p.mode === 'vernier' && p.onDisconnectAll && (
+                  <button
+                    className="btn btn-ghost"
+                    style={{ color: 'var(--amber-dark)' }}
+                    disabled={p.rows.length === 0}
+                    onClick={p.onDisconnectAll}
+                    title="Disconnect all connected Bluetooth photogates"
+                  >
+                    Disconnect all photogates
+                  </button>
+                )}
+                <button
+                  className="btn"
+                  disabled={groupIds.length < 2}
+                  onClick={p.onSort}
+                  title="Re-order all photogates from highest to lowest based on entered heights"
+                >
+                  ↕ Sort by height (Top → Bottom)
                 </button>
               </>
             )}

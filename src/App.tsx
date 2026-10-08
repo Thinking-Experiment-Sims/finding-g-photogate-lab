@@ -339,17 +339,69 @@ export default function App() {
     resetAnalysis();
   };
 
+  const disconnectAll = () => {
+    if (src) {
+      src.dispose();
+      if (mode === 'vernier') {
+        const newSrc = new GoDirectPhotogateSource();
+        newSrc.subscribe(onEvent);
+        sourceRef.current = newSrc;
+      }
+    }
+    setRows([]);
+    setSaved([]);
+    clearTimes();
+    resetAnalysis();
+    setError(null);
+  };
+
+  const moveGateOrder = (groupId: string, direction: 'up' | 'down') => {
+    setRows((prev) => {
+      const gids = [...new Set(prev.map((r) => r.groupId ?? r.gateId))];
+      const idx = gids.indexOf(groupId);
+      if (idx === -1) return prev;
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= gids.length) return prev;
+
+      const newGids = [...gids];
+      const temp = newGids[idx];
+      newGids[idx] = newGids[targetIdx];
+      newGids[targetIdx] = temp;
+
+      const newRows: GateRow[] = [];
+      newGids.forEach((gid) => {
+        const members = prev.filter((r) => (r.groupId ?? r.gateId) === gid);
+        newRows.push(...members);
+      });
+      return newRows;
+    });
+    resetAnalysis();
+  };
+
   const sortRows = () => {
-    setRows((r) =>
-      [...r].sort((a, b) => {
-        const pa = parsePosition(a.positionText);
-        const pb = parsePosition(b.positionText);
-        if (pa !== null && pb !== null) return pb - pa;
-        if (pa !== null) return -1;
-        if (pb !== null) return 1;
-        return a.label.localeCompare(b.label);
-      }),
-    );
+    setRows((prev) => {
+      const gids = [...new Set(prev.map((r) => r.groupId ?? r.gateId))];
+      const groupHeights = gids.map((gid) => {
+        const members = prev.filter((r) => (r.groupId ?? r.gateId) === gid);
+        const parsed = members.map((m) => parsePosition(m.positionText)).filter((p): p is number => p !== null);
+        const maxH = parsed.length > 0 ? Math.max(...parsed) : -Infinity;
+        return { gid, maxH };
+      });
+      groupHeights.sort((a, b) => b.maxH - a.maxH);
+
+      const newRows: GateRow[] = [];
+      groupHeights.forEach(({ gid }) => {
+        const members = prev.filter((r) => (r.groupId ?? r.gateId) === gid);
+        members.sort((a, b) => {
+          const pa = parsePosition(a.positionText) ?? 0;
+          const pb = parsePosition(b.positionText) ?? 0;
+          return pb - pa;
+        });
+        newRows.push(...members);
+      });
+      return newRows;
+    });
+    resetAnalysis();
   };
 
   const exportCsv = () => {
@@ -524,6 +576,8 @@ export default function App() {
               onPosition={handlePosition}
               onAddGate={addGate}
               onRemoveGate={removeGate}
+              onDisconnectAll={disconnectAll}
+              onMoveGate={moveGateOrder}
               onStandMoved={() => {
                 clearTimes();
                 resetAnalysis();
